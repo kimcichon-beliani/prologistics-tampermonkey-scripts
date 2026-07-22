@@ -8,6 +8,9 @@
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @run-at       document-idle
 // @grant        none
+// @updateURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/empty-rows-highlight.user.js
+// @downloadURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/empty-rows-highlight.user.js
+
 // ==/UserScript==
 
 // Autor: kimrioter
