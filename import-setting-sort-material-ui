@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Czysta i posortowana lista Import Setting (Material UI)
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Sortuje i czyści opcje z numerów w komponencie Material UI Select
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/settings_page/import_tool/*
@@ -13,6 +13,7 @@
 
 (function () {
     'use strict';
+    console.log('[TM sort script by kimrioter] Start');
 
     let isProcessing = false;
 
@@ -62,6 +63,8 @@
 
         menuList.dataset.sorted = "true";
 
+        console.log('[TM sort script by kimrioter] Posortowano opcji:', dataOptions.length + (defaultOption ? 1 : 0));
+
         setTimeout(() => {
             isProcessing = false;
         }, 100);
@@ -77,4 +80,5 @@
         subtree: true
     });
 
+    console.log('[TM sort script by kimrioter] Zainicjalizowano observer');
 })();
