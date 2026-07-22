@@ -1,1 +1,38 @@
-# prologistics-tampermonkey-scripts
+# Prologistics — Skrypty Tampermonkey
+
+Zbiór skryptów userscript usprawniających pracę w systemie [prologistics.info](https://www.prologistics.info/).
+
+Autor: **kimrioter**
+
+## Jak zainstalować
+
+1. Zainstaluj rozszerzenie [Tampermonkey](https://www.tampermonkey.net/) w przeglądarce.
+2. Kliknij link "Raw" przy wybranym skrypcie poniżej (lub wejdź bezpośrednio w plik `.user.js` w tym repozytorium i kliknij **Raw**).
+3. Tampermonkey powinien automatycznie wykryć plik i zaproponować instalację.
+4. Po instalacji skrypt będzie się aktualizował automatycznie (Tampermonkey sprawdza aktualizacje co ok. 24h).
+
+## Lista skryptów
+
+### 🔴 empty-rows-highlight.user.js
+**Podświetlanie pustych wierszy — Mark as shipped / No labels found**
+Podświetla na czerwono wiersze w tabelach, w których:
+- kolumna "Mark as shipped" jest pusta (tabela Total Cycle Time),
+- kolumna "Shipping labels" zawiera "No labels found" przy sprawdzaniu labeli dla Trademaxa.
+
+### 🔤 total-cycle-time-alpha-sort.user.js
+**Sortowanie list wyboru alfabetycznie — Total Cycle Time**
+Sortuje alfabetycznie opcje w listach wielokrotnego wyboru (np. "Seller", "Source seller") na stronie filtra Total Cycle Time, z opcją "All" zawsze przypiętą na górze. Działa tylko na `total_cycle_time.php`.
+
+### 🚚 shipping-method-country-filter.user.js
+**Filtrowanie listy Shipping method + Country — Ticket**
+W Tickecie, przy polu "Shipping method #", ogranicza listę do wybranych spedycji i dodaje dodatkowy dropdown "Country" do szybkiego filtrowania spedycji po kraju.
+
+### 📋 import-setting-sort.user.js
+**Czysta i posortowana lista Import Setting (Material UI)**
+Na stronie `react/settings_page/import_tool/`, w liście "Import setting" (widocznej po wybraniu Type: Mass Invoice) ukrywa numery ID partnerów i sortuje listę alfabetycznie po nazwie.
+
+## Uwagi
+
+- Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
+- W razie problemów po aktualizacji strony (np. zmiana struktury tabeli) sprawdź konsolę przeglądarki (F12) — skrypty logują swoje działanie z prefiksem `[TM script by kimrioter]`.
+- Przy każdej zmianie w skrypcie pamiętaj o podniesieniu numeru `@version` w nagłówku — inaczej Tampermonkey nie wykryje aktualizacji u innych osób korzystających ze skryptu.
