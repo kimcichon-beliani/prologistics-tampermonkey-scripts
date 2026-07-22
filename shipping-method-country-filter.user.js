@@ -7,6 +7,8 @@
 // @match        https://www.prologistics.info/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/shipping-method-country-filter.user.js
+// @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/shipping-method-country-filter.user.js
 // ==/UserScript==
 
 (function () {
