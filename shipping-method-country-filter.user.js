@@ -4,7 +4,7 @@
 // @version      1.3
 // @description  Ogranicza listę "Shipping method #" do wybranych spedycji, z dodatkowym filtrem po kraju
 // @author       kimrioter
-// @match        https://www.prologistics.info/*
+// @match        www.prologistics.info/rma.php*
 // @run-at       document-idle
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/shipping-method-country-filter.user.js
