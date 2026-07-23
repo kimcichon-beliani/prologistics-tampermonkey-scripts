@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Czysta i posortowana lista Import Setting (Material UI)
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  Sortuje i czyści opcje z numerów w komponencie Material UI Select
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/settings_page/import_tool/*
