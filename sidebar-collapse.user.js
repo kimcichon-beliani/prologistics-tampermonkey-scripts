@@ -8,6 +8,8 @@
 // @exclude      https://www.prologistics.info/react/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL 
+// @downloadURL 
 // ==/UserScript==
 
 (function () {
