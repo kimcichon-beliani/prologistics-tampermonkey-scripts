@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Filtrowanie listy Shipping method + Country — Ticket
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Ogranicza listę "Shipping method #" do wybranych spedycji, z dodatkowym filtrem po kraju
 // @author       kimrioter
 // @match        www.prologistics.info/rma.php*
