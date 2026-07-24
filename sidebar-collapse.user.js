@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         Zwijany sidebar — Prologistics
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.5
 // @description  Pozwala schować/rozwinąć boczne menu, zostawiając widoczny czas pracy i przycisk wylogowania
 // @author       kimrioter
 // @match        https://www.prologistics.info/*
 // @exclude      https://www.prologistics.info/react/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sidebar-collapse.user.js
-// @downloadURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sidebar-collapse.user.js
 // ==/UserScript==
 
 (function () {
@@ -166,7 +164,7 @@
         toggleBtn.title = 'Zwiń / rozwiń menu';
         toggleContainer.appendChild(toggleBtn);
 
-        // Kontener na elementy przyklejone na stałe (Logout + czas pracy) — position: fixed w stanie zwiniętym
+        // Kontener na elementy przyklejone na stałe w stanie zwiniętym (Logout + czas pracy)
         const persistentPanel = document.createElement('div');
         persistentPanel.className = 'tm-sidebar-persistent';
 
@@ -189,44 +187,64 @@
             return width;
         }
 
-        // Znajdujemy oryginalny link "Logout" (razem z jego <b>) i przenosimy (nie klonujemy!)
+        // Znajdujemy oryginalne elementy (Logout, timesheet) i zostawiamy w ich miejscu
+        // niewidoczne "znaczniki" (komentarze DOM), żeby po rozwinięciu wiedzieć, gdzie dokładnie wrócić
         const logoutLink = sidebar.querySelector('a[href="/logout.php"]');
+        const logoutPlaceholder = document.createComment('tm-logout-placeholder');
         if (logoutLink) {
-            persistentPanel.appendChild(logoutLink);
+            logoutLink.parentNode.insertBefore(logoutPlaceholder, logoutLink);
             const textWidth = measureTextWidth(logoutLink.textContent.trim(), true);
             // Ustawiamy jako zmienną CSS — właściwa wysokość zadziała TYLKO w stanie zwiniętym
-            // (patrz reguła .tm-collapsed w arkuszu stylów), a w rozwiniętym widoku link zachowa naturalną wysokość
             logoutLink.style.setProperty('--tm-logout-height', (textWidth + 8) + 'px');
         }
 
-        // Znajdujemy oryginalny div.timesheet_wrapper (z czasem pracy i przyciskiem LOG OUT) i przenosimy
         const timesheetWrapper = sidebar.querySelector('.timesheet_wrapper');
+        const timesheetPlaceholder = document.createComment('tm-timesheet-placeholder');
         if (timesheetWrapper) {
-            persistentPanel.appendChild(timesheetWrapper);
+            timesheetWrapper.parentNode.insertBefore(timesheetPlaceholder, timesheetWrapper);
         }
 
-        // Wszystko, co zostało w sidebarze (reszta linków), przenosimy do zwijalnego kontenera
+        // Wszystko, co zostało w sidebarze (cała reszta menu, WŁĄCZNIE z Logout i timesheet
+        // na ich oryginalnych miejscach), przenosimy do zwijalnego kontenera — bez zmiany kolejności
         const collapsibleContent = document.createElement('div');
         collapsibleContent.className = 'tm-collapsible-content';
 
-        // Przenosimy WSZYSTKIE pozostałe dzieci sidebara (w tym tekst, <br>, <a> itd.)
         while (sidebar.firstChild) {
             collapsibleContent.appendChild(sidebar.firstChild);
         }
 
-        // Składamy sidebar na nowo: toggle (statyczny) → panel przyklejony (fixed) → zwijalna reszta
+        // Składamy sidebar na nowo: toggle (statyczny) → panel przyklejony (pusty na razie) → reszta menu w oryginalnym układzie
         sidebar.appendChild(toggleContainer);
         sidebar.appendChild(persistentPanel);
         sidebar.appendChild(collapsibleContent);
 
+        // Przełącza fizyczne położenie Logout/timesheet: w stanie zwiniętym trafiają do panelu przyklejonego,
+        // w stanie rozwiniętym wracają dokładnie na swoje oryginalne miejsce (przy znaczniku)
+        function applyElementPositions(collapsed) {
+            if (collapsed) {
+                if (logoutLink) persistentPanel.appendChild(logoutLink);
+                if (timesheetWrapper) persistentPanel.appendChild(timesheetWrapper);
+            } else {
+                if (logoutLink && logoutPlaceholder.parentNode) {
+                    logoutPlaceholder.parentNode.insertBefore(logoutLink, logoutPlaceholder.nextSibling);
+                }
+                if (timesheetWrapper && timesheetPlaceholder.parentNode) {
+                    timesheetPlaceholder.parentNode.insertBefore(timesheetWrapper, timesheetPlaceholder.nextSibling);
+                }
+            }
+        }
+
         // Wczytujemy zapamiętany stan
         const savedState = localStorage.getItem(STORAGE_KEY);
-        if (savedState === 'true') {
+        const isCollapsedInitially = savedState === 'true';
+        if (isCollapsedInitially) {
             sidebar.classList.add('tm-collapsed');
         }
+        applyElementPositions(isCollapsedInitially);
 
         toggleBtn.addEventListener('click', () => {
             const isCollapsed = sidebar.classList.toggle('tm-collapsed');
+            applyElementPositions(isCollapsed);
             localStorage.setItem(STORAGE_KEY, isCollapsed ? 'true' : 'false');
             console.log('[TM sidebar script by kimrioter] Sidebar', isCollapsed ? 'zwinięty' : 'rozwinięty');
         });
