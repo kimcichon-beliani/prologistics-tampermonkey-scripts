@@ -7,6 +7,8 @@
 // @match        https://www.prologistics.info/calcs.php*
 // @run-at       document-idle
 // @grant        none
+// @updateURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sellers-sort.user.js
+// @downloadURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sellers-sort.user.js
 // ==/UserScript==
 
 (function () {
