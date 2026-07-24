@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Sortowanie list Sellers + Source seller — Calculations
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Sortuje alfabetycznie listę "Sellers" oraz wszystkie listy "Source seller" (dla każdego sellera) na stronie calcs.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/calcs.php*
 // @run-at       document-idle
 // @grant        none
-// @updateURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sellers-sort.user.js
-// @downloadURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sellers-sort.user.js
+// @updateURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/calc-sellers-sort.user.js
+// @downloadURL https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/calc-sellers-sort.user.js
 // ==/UserScript==
 
 (function () {
