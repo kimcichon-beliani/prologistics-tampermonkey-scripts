@@ -33,7 +33,13 @@ Na stronie `react/settings_page/import_tool/`, w liście "Import setting" (widoc
 
 ### 📐 sidebar-collapse.user.js
 
-**Zwijany sidebar — Prologistics** Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". Po zwinięciu wciąż widoczne (w formie pionowego tekstu, przyklejonego do lewej krawędzi i przewijającego się z użytkownikiem) pozostają: link "Logout" oraz czas pracy z przyciskiem "LOG OUT". Stan (zwinięty/rozwinięty) jest zapamiętywany między odświeżeniami strony. Nie działa na podstronach /react/ (dynamiczne aplikacje React mają już nowocześniejszy interfejs i mogłyby kolidować ze skryptem).
+**Zwijany sidebar — Prologistics** 
+Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". Po zwinięciu wciąż widoczne (w formie pionowego tekstu, przyklejonego do lewej krawędzi i przewijającego się z użytkownikiem) pozostają: link "Logout" oraz czas pracy z przyciskiem "LOG OUT". Stan (zwinięty/rozwinięty) jest zapamiętywany między odświeżeniami strony. Nie działa na podstronach /react/ (dynamiczne aplikacje React mają już nowocześniejszy interfejs i mogłyby kolidować ze skryptem).
+
+### 🔤 sellers-sort.user.js
+
+**Sortowanie list Sellers + Source seller — Calculations**
+Na stronie calcs.php sortuje alfabetycznie listę "Sellers" oraz listę "Source seller". Kiedy zaznaczonych jest kilku Sellerów naraz, ich pozycje "Source seller" łączą się w jedną wspólną, alfabetyczną listę (zamiast pokazywać osobne bloki dla każdego Sellera). Działa poprzez nasłuchiwanie kliknięć/zmian w fazie przechwytywania i normalnej fazie, więc nie ingeruje bezpośrednio w wewnętrzną logikę strony (showHideSources()).
 
 ## Uwagi
 
