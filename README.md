@@ -31,6 +31,10 @@ W Tickecie, przy polu "Shipping method #", ogranicza listę do wybranych spedycj
 **Czysta i posortowana lista Import Setting (Material UI)**
 Na stronie `react/settings_page/import_tool/`, w liście "Import setting" (widocznej po wybraniu Type: Mass Invoice) ukrywa numery ID partnerów i sortuje listę alfabetycznie po nazwie.
 
+### 📐 sidebar-collapse.user.js
+
+Zwijany sidebar — Prologistics Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". Po zwinięciu wciąż widoczne (w formie pionowego tekstu, przyklejonego do lewej krawędzi i przewijającego się z użytkownikiem) pozostają: link "Logout" oraz czas pracy z przyciskiem "LOG OUT". Stan (zwinięty/rozwinięty) jest zapamiętywany między odświeżeniami strony. Nie działa na podstronach /react/ (dynamiczne aplikacje React mają już nowocześniejszy interfejs i mogłyby kolidować ze skryptem).
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
