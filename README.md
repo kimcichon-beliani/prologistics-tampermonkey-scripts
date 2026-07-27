@@ -41,8 +41,10 @@ Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". P
 **Sortowanie list Sellers + Source seller — Calculations**
 Na stronie 'calcs.php' sortuje alfabetycznie listę "Sellers" oraz listę "Source seller". Kiedy zaznaczonych jest kilku Sellerów naraz, ich pozycje "Source seller" łączą się w jedną wspólną, alfabetyczną listę (zamiast pokazywać osobne bloki dla każdego Sellera). Działa poprzez nasłuchiwanie kliknięć/zmian w fazie przechwytywania i normalnej fazie, więc nie ingeruje bezpośrednio w wewnętrzną logikę strony '(showHideSources())'.
 
+### hide-columns-seller-sources.user.js
+Automatycznie chowa najmniej potrzebne kolumny na stronie. 
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
 - W razie problemów po aktualizacji strony (np. zmiana struktury tabeli) sprawdź konsolę przeglądarki (F12) — skrypty logują swoje działanie z prefiksem `[TM script by kimrioter]`.
-- Przy każdej zmianie w skrypcie pamiętaj o podniesieniu numeru `@version` w nagłówku — inaczej Tampermonkey nie wykryje aktualizacji u innych osób korzystających ze skryptu.
