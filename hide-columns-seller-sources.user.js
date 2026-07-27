@@ -7,8 +7,8 @@
 // @match        https://www.prologistics.info/seller_sources.php*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    
-// @downloadURL 
+// @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
+// @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
 // ==/UserScript==
 
 (function () {
