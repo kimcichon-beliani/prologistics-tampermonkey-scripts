@@ -41,8 +41,15 @@ Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". P
 **Sortowanie list Sellers + Source seller — Calculations**
 Na stronie 'calcs.php' sortuje alfabetycznie listę "Sellers" oraz listę "Source seller". Kiedy zaznaczonych jest kilku Sellerów naraz, ich pozycje "Source seller" łączą się w jedną wspólną, alfabetyczną listę (zamiast pokazywać osobne bloki dla każdego Sellera). Działa poprzez nasłuchiwanie kliknięć/zmian w fazie przechwytywania i normalnej fazie, więc nie ingeruje bezpośrednio w wewnętrzną logikę strony '(showHideSources())'.
 
-### hide-columns-seller-sources.user.js
-Automatycznie chowa najmniej potrzebne kolumny na stronie. 
+### 💳 payment-status.user.js
+
+**Status płatności — Payments**
+Na stronie auction.php dopisuje status płatności ("Unpaid order" / "Order paid in full" / "Overpayment") w istniejącej, pustej kolumnie tabelki "Payments" — status obejmuje wspólnie wiersze "Total of Payments" i "Auftrag value - Total of Payments". Kwota jest rozpoznawana niezależnie od waluty (€, Lei, zł itd.). Odświeża się automatycznie po dodaniu nowej płatności bez przeładowania strony.
+
+### 👁️ hide-columns-seller-sources.user.js
+
+**Ukrywanie kolumn — Source sellers**
+Na stronie seller_sources.php dodaje panel "⚙ Kolumny" (pod polem "Status" w formularzu filtrów) z checkboxami dla każdej kolumny tabeli — pozwala dowolnie włączać/wyłączać ich widoczność. Domyślnie ukrywa 13 rzadziej potrzebnych kolumn (np. Beezup adress, Provision in %, Clearing account itd.). Wybór zapamiętywany jest w przeglądarce między wizytami.
 
 ## Uwagi
 
