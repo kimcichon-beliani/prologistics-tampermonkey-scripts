@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Ukrywanie kolumn — Source sellers
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      2.7
 // @description  Panel z checkboxami do włączania/wyłączania widoczności kolumn tabeli na stronie seller_sources.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/seller_sources.php*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
+// @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
 // ==/UserScript==
 
 (function () {
@@ -14,12 +16,15 @@
     console.log('[TM hide columns script by kimrioter] Start');
 
     const STORAGE_KEY = 'tm_hidden_columns_seller_sources';
+    const STORAGE_KEY_APPLIED_DEFAULTS = 'tm_hidden_columns_seller_sources_applied_defaults';
+
     // Domyślnie ukryte kolumny (liczone od 0) — używane tylko przy pierwszej wizycie,
     // później decyduje to, co zapisane w pamięci przeglądarki
     const DEFAULT_HIDDEN = [9, 10, 11, 13, 15, 16, 17, 19, 20, 22, 23, 24, 25];
 
-    // Dodatkowe kolumny domyślnie ukrywane po nazwie (a nie numerze) — bezpieczniejsze,
-    // bo nie zależy od tego, którym dokładnie indeksem akurat wypadła dana kolumna
+    // Kolumny dopisane później — dopasowywane po nazwie (żeby nie zależeć od numeru indeksu),
+    // ale automatycznie i jednorazowo "migrowane" do zwykłej listy numerów (spójnie z resztą),
+    // działa dla KAŻDEGO, także dla osób z już zapisanymi wcześniej ustawieniami
     const DEFAULT_HIDDEN_LABELS = [
         'VAT settings B2C',
         'Replace Out of country, EU VAT/ Selling accounts from VAT settings with Selling/VAT accounts B2C',
@@ -39,19 +44,46 @@
     let initialized = false;
     let debounceTimer = null;
 
+    function loadAppliedDefaultLabels() {
+        try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY_APPLIED_DEFAULTS) || '[]')); }
+        catch (e) { return new Set(); }
+    }
+
+    function saveAppliedDefaultLabels(set) {
+        localStorage.setItem(STORAGE_KEY_APPLIED_DEFAULTS, JSON.stringify(Array.from(set)));
+    }
+
     function loadHiddenColumns(headerCells) {
         const saved = localStorage.getItem(STORAGE_KEY);
+        let hidden;
         if (saved) {
-            try { return new Set(JSON.parse(saved)); } catch (e) { /* ignore, fall through */ }
+            try { hidden = new Set(JSON.parse(saved)); } catch (e) { hidden = new Set(DEFAULT_HIDDEN); }
+        } else {
+            hidden = new Set(DEFAULT_HIDDEN);
         }
 
-        const defaults = new Set(DEFAULT_HIDDEN);
+        // Jednorazowa migracja: każda z nowych, nazwanych kolumn zostaje dodana do ukrytych
+        // TYLKO jeśli nigdy wcześniej nie została "rozpatrzona" — dzięki temu działa automatycznie
+        // dla każdego (nowego i już korzystającego), a późniejsze ręczne odznaczenie przez Ciebie zostanie uszanowane
+        const appliedLabels = loadAppliedDefaultLabels();
+        let appliedChanged = false;
+
         headerCells.forEach((th, idx) => {
             const inner = th.querySelector('.tablesorter-header-inner');
             const label = (inner ? inner.textContent : th.textContent).trim();
-            if (DEFAULT_HIDDEN_LABELS.includes(label)) defaults.add(idx);
+            if (DEFAULT_HIDDEN_LABELS.includes(label) && !appliedLabels.has(label)) {
+                hidden.add(idx);
+                appliedLabels.add(label);
+                appliedChanged = true;
+            }
         });
-        return defaults;
+
+        if (appliedChanged) {
+            saveAppliedDefaultLabels(appliedLabels);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(hidden)));
+        }
+
+        return hidden;
     }
 
     function saveHiddenColumns() {
@@ -231,6 +263,13 @@
             checkboxes.forEach(cb => { cb.checked = false; });
             saveHiddenColumns();
             applyColumnVisibility();
+        });
+
+        // Zamykamy panel po kliknięciu gdziekolwiek poza nim (poza przyciskiem i samym panelem)
+        document.addEventListener('click', (e) => {
+            if (panel.style.display !== 'none' && !wrapper.contains(e.target)) {
+                panel.style.display = 'none';
+            }
         });
 
         console.log('[TM hide columns script by kimrioter] Panel zbudowany, kolumn:', headerCells.length);
