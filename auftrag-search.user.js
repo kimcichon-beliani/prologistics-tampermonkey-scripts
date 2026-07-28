@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auftrag Search (Beliani Direct Fulfilment)
 // @namespace    https://www.prologistics.info/
-// @version      1.2
+// @version      1.3
 // @description  Text selection with Beliani Icon to search directly as Fulfilment on ProLogistics.
 // @author       kimrioter
 // @match        *://*/*
@@ -22,7 +22,7 @@
 
     const BELIANI_IMG = `<img src="${BELIANI_LOGO_URL}" style="width:18px; height:18px; object-fit:contain; vertical-align:middle; border-radius:3px;" alt="B">`;
 
-    const FULFILMENT_URL_TEMPLATE = 'https://www.prologistics.info/search.php?days1=&ppp_not_booked_solved=0&ebay_shp_days=&days3=&days8=&days5=&days2=&partner_unpaid_date=&calc_listing_fee_dn=&listingfees_open_days=&number=&what=ff_number&ff_number={FF_NUMBER}&email=&buyer_name=&company=&name=&street=&zip=&city=&tel=&seller_name=&invoice_number=&offer_id=&galleryURL=&shipping_country=PB&shipping_country_seller=&shipping_country_from=YYYY-MM-DD&shipping_country_to=YYYY-MM-DD&tracking_number=&return_tracking_number=&label_number=&deleted_uname=&payment_comment=&open_amount_mode=any&open_amount_from=&open_amount_to=&open_amount_currency=&direct_offer_id=&fix_number=&shipping_order_country=&shipping_order_warehouse=&sold_price_seller_name=&sold_price=&sold_price_currency=CAD&unshipped_bonus_country=AT&unshipped_orders_country=&status%5B%5D=ticket_opened&status%5B%5D=uncompleted&status%5B%5D=unpaid&status%5B%5D=ready_to_ship&status%5B%5D=ins&source_seller=0&comment=&comment_src=&alarm_mode=Pending&alarm_username=Rykaczewski&alarm_type=&payment_method=1&payment_method_date_from=&payment_method_date_to=&rma_sell_html_paid=0&rma_sell_html=&rma_sell_auction=&rma_sell_auction_number=&custom_invoice_paid_resp=&secchance_base_auction_number=&secchance_saved_id=&secchance_buyer=&rma_sold_notsold=1&rma_sold_notsold_warehouse=255&since_year=&to_year=&article_id=&article_name=&article_id_edit=&spec_order_OPS=&spec_order_shipped=0&new_article_completed=0&saved_saved_id=&saved_saved_name=&saved_saved_ean=&article_article_id=&article_article_name=&article_supplier_article_id=&merchant_item_id=&merchant_item_name=&issue_log_id=&deleted_doc=&pcs=';
+    const FULFILMENT_URL_TEMPLATE = 'https://www.prologistics.info/search.php?express&what=ff_number&ff_number={FF_NUMBER}';
 
     function buildFulfilmentUrl(number) {
         return FULFILMENT_URL_TEMPLATE.replace('{FF_NUMBER}', encodeURIComponent(number));
