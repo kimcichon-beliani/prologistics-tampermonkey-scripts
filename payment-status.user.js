@@ -7,6 +7,8 @@
 // @match        https://www.prologistics.info/auction.php*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/payment-status.user.js
+// @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/payment-status.user.js
 // ==/UserScript==
 
 (function () {
