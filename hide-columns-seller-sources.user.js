@@ -1,14 +1,12 @@
 // ==UserScript==
 // @name         Ukrywanie kolumn — Source sellers
 // @namespace    http://tampermonkey.net/
-// @version      2.5
+// @version      2.6
 // @description  Panel z checkboxami do włączania/wyłączania widoczności kolumn tabeli na stronie seller_sources.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/seller_sources.php*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
-// @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/hide-columns-seller-sources.user.js
 // ==/UserScript==
 
 (function () {
@@ -20,16 +18,40 @@
     // później decyduje to, co zapisane w pamięci przeglądarki
     const DEFAULT_HIDDEN = [9, 10, 11, 13, 15, 16, 17, 19, 20, 22, 23, 24, 25];
 
+    // Dodatkowe kolumny domyślnie ukrywane po nazwie (a nie numerze) — bezpieczniejsze,
+    // bo nie zależy od tego, którym dokładnie indeksem akurat wypadła dana kolumna
+    const DEFAULT_HIDDEN_LABELS = [
+        'VAT settings B2C',
+        'Replace Out of country, EU VAT/ Selling accounts from VAT settings with Selling/VAT accounts B2C',
+        'VAT inclusion B2C',
+        'VAT settings B2B',
+        'VAT inclusion B2B',
+        'Domestic Reverse Charge',
+        'PP formula',
+        'Show PP on SA pages',
+        "Don't send invoice",
+        'Automatically move house number in auftrag page',
+        'Send winning email',
+        'Display name on map'
+    ];
+
     let hiddenColumns = null;
     let initialized = false;
     let debounceTimer = null;
 
-    function loadHiddenColumns() {
+    function loadHiddenColumns(headerCells) {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             try { return new Set(JSON.parse(saved)); } catch (e) { /* ignore, fall through */ }
         }
-        return new Set(DEFAULT_HIDDEN);
+
+        const defaults = new Set(DEFAULT_HIDDEN);
+        headerCells.forEach((th, idx) => {
+            const inner = th.querySelector('.tablesorter-header-inner');
+            const label = (inner ? inner.textContent : th.textContent).trim();
+            if (DEFAULT_HIDDEN_LABELS.includes(label)) defaults.add(idx);
+        });
+        return defaults;
     }
 
     function saveHiddenColumns() {
@@ -220,9 +242,9 @@
         if (!headerRow) return;
 
         initialized = true;
-        hiddenColumns = loadHiddenColumns();
-
         const headerCells = getHeaderCells(headerRow);
+        hiddenColumns = loadHiddenColumns(headerCells);
+
         buildPanel(headerCells);
         applyColumnVisibility();
 
