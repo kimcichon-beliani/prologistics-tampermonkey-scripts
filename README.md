@@ -51,6 +51,11 @@ Na stronie auction.php dopisuje status płatności ("Unpaid order" / "Order paid
 **Ukrywanie kolumn — Source sellers**
 Na stronie seller_sources.php dodaje panel "⚙ Kolumny" (pod polem "Status" w formularzu filtrów) z checkboxami dla każdej kolumny tabeli — pozwala dowolnie włączać/wyłączać ich widoczność. Domyślnie ukrywa 13 rzadziej potrzebnych kolumn (np. Beezup adress, Provision in %, Clearing account itd.). Wybór zapamiętywany jest w przeglądarce między wizytami.
 
+### 🔍 auftrag-search.user.js
+
+**Auftrag Search (Beliani Direct Fulfilment)**
+Działa na każdej stronie (np. Mirakl/Maxeda). Po zaznaczeniu dowolnego tekstu (do 50 znaków) pojawia się mała, pływająca ikonka Beliani — kliknięcie w nią otwiera w nowej karcie wyszukiwanie tego numeru jako Fulfilment bezpośrednio w Prologistics (przez szybki link "express", od razu przenoszący do zamówienia, bez listy wyników).
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
