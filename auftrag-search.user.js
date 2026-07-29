@@ -2,7 +2,7 @@
 // @name         Auftrag Search (Beliani Direct Fulfilment)
 // @namespace    https://www.prologistics.info/
 // @version      1.4
-// @description  Text selection with Beliani Icon to search directly as Fulfilment on Prologistics.
+// @description  Zaznaczenie tekstu pokazuje ikonkę Beliani, która wyszukuje zaznaczony numer jako Fulfilment bezpośrednio w Prologistics
 // @author       kimrioter
 // @match        *://*/*
 // @run-at       document-idle
@@ -12,16 +12,18 @@
 
 (function () {
     'use strict';
-    console.log('[TM Auftrag Search by kimrioter] Start');
+    console.log('[TM auftrag search script by kimrioter] Start');
 
     const COLORS = {
-        accent: '#ff2f00' // Beliani Red
+        accent: '#ff2f00' // czerwony Beliani
     };
 
     const BELIANI_LOGO_URL = 'https://i.snipboard.io/CxDQj3.jpg';
 
     const BELIANI_IMG = `<img src="${BELIANI_LOGO_URL}" style="width:18px; height:18px; object-fit:contain; vertical-align:middle; border-radius:3px;" alt="B">`;
 
+    // Krótki, szybki link "express" — wyszukuje bezpośrednio po numerze Fulfilment (what=ff_number)
+    // i od razu przenosi do zamówienia, bez pokazywania listy wyników
     const FULFILMENT_URL_TEMPLATE = 'https://www.prologistics.info/search.php?express&what=ff_number&ff_number={FF_NUMBER}';
 
     function buildFulfilmentUrl(number) {
@@ -38,7 +40,7 @@
         link.remove();
     }
 
-    // --- SELECTION BUTTON (BELIANI FLOATING ICON) ---
+    // --- PŁYWAJĄCA IKONKA BELIANI PRZY ZAZNACZENIU TEKSTU ---
     let selectionBtn = null;
 
     function removeSelectionButton() {
@@ -78,6 +80,7 @@
                         transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
                     `;
 
+                    // Delikatne powiększenie ikonki po najechaniu myszką
                     selectionBtn.addEventListener('mouseenter', () => {
                         selectionBtn.style.transform = 'scale(1.15)';
                         selectionBtn.style.boxShadow = '0 6px 16px rgba(255,47,0,0.25)';
@@ -97,6 +100,7 @@
                     document.body.appendChild(selectionBtn);
                 }
 
+                // Pozycjonujemy ikonkę tuż nad zaznaczonym tekstem, wyśrodkowaną względem zaznaczenia
                 const topPos = window.scrollY + rect.top - 36;
                 const leftPos = window.scrollX + rect.left + (rect.width / 2) - 15;
 
@@ -108,9 +112,12 @@
         }, 10);
     });
 
+    // Usuwamy ikonkę, gdy użytkownik kliknie gdziekolwiek poza nią (np. żeby odznaczyć tekst)
     document.addEventListener('mousedown', (e) => {
         if (selectionBtn && !selectionBtn.contains(e.target)) {
             removeSelectionButton();
         }
     });
+
+    console.log('[TM auftrag search script by kimrioter] Zainicjalizowano nasłuchiwanie zaznaczenia tekstu');
 })();
