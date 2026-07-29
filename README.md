@@ -56,6 +56,11 @@ Na stronie seller_sources.php dodaje panel "⚙ Kolumny" (pod polem "Status" w f
 **Auftrag Search (Beliani Direct Fulfilment)**
 Działa na każdej stronie (np. Mirakl/Maxeda). Po zaznaczeniu dowolnego tekstu (do 50 znaków) pojawia się mała, pływająca ikonka Beliani — kliknięcie w nią otwiera w nowej karcie wyszukiwanie tego numeru jako Fulfilment bezpośrednio w Prologistics (przez szybki link "express", od razu przenoszący do zamówienia, bez listy wyników).
 
+### 🏷️ express-label-generator.user.js
+
+**Express Label Generator — RMA**
+Na stronie `rma.php` po kliknięciu przycisku "Label for client" automatycznie generuje etykietę klienta w nowej karcie i zamyka okienko modalne "Choose warehouse" bez konieczności dodatkowego klikania "Show label".
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
