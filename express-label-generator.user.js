@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Express Label Generator — ProLogistics (Fixed)
+// @name         Express Label Generator — Prologistics (Fixed)
 // @namespace    https://www.prologistics.info/
 // @version      1.1
 // @description  Bypasses the manual click in "Choose warehouse" modal, auto-submits form and opens full label in a new tab.
