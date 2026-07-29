@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auftrag Search (Beliani Direct Fulfilment)
 // @namespace    https://www.prologistics.info/
-// @version      1.3
-// @description  Text selection with Beliani Icon to search directly as Fulfilment on ProLogistics.
+// @version      1.4
+// @description  Text selection with Beliani Icon to search directly as Fulfilment on Prologistics.
 // @author       kimrioter
 // @match        *://*/*
 // @run-at       document-idle
@@ -60,7 +60,7 @@
                 if (!selectionBtn) {
                     selectionBtn = document.createElement('div');
                     selectionBtn.id = 'beliani-search-btn';
-                    selectionBtn.title = 'Szukaj Fulfilment w ProLogistics';
+                    selectionBtn.title = 'Szukaj Fulfilment w Prologistics';
                     selectionBtn.innerHTML = BELIANI_IMG;
                     selectionBtn.style.cssText = `
                         position: absolute;
