@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         Zwijany sidebar — Prologistics
 // @namespace    http://tampermonkey.net/
-// @version      2.5.2
+// @version      3.3
 // @description  Pozwala schować/rozwinąć boczne menu ze stabilnym układem, bordo przyciskiem i pogrubionym "IN".
 // @author       kimrioter
 // @match        https://www.prologistics.info/*
-// @exclude      https://www.prologistics.info/react/*
 // @run-at       document-idle
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/sidebar-collapse.user.js
