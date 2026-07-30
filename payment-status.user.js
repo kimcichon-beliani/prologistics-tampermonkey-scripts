@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Status płatności — Payments
 // @namespace    http://tampermonkey.net/
-// @version      1.9
-// @description  Dopisuje status ("Unpaid order" / "Order paid in full" / "Overpayment") obok kwoty w tabelce Payments
+// @version      2.0
+// @description  Dopisuje status ("Unpaid order" / "Order paid" / "Overpayment") obok kwoty w tabelce Payments
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
 // @run-at       document-idle
@@ -102,7 +102,7 @@
             message = 'Unpaid order';
             color = '#d32f2f';
         } else if (value === 0) {
-            message = 'Order paid in full';
+            message = 'Order paid';
             color = '#2e7d32';
         } else {
             message = 'Overpayment';
