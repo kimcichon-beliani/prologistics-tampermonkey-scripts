@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Zwijany sidebar — Prologistics
 // @namespace    http://tampermonkey.net/
-// @version      3.3
+// @version      3.4
 // @description  Pozwala schować/rozwinąć boczne menu ze stabilnym układem, bordo przyciskiem i pogrubionym "IN".
 // @author       kimrioter
 // @match        https://www.prologistics.info/*
@@ -133,14 +133,15 @@
                 font-weight: 800 !important;
             }
 
-            /* Przycisk LOG OUT — w kolorze bordo (ProLogistics Red) */
+            /* Przycisk LOG OUT — w kolorze bordo (ProLogistics Red), delikatnie mniejsza skala */
             td.leftSideMenu.tm-collapsed .tm-sidebar-persistent input#timesheet_button {
-                background: #800000 !important;
+                background: #750000 !important;
                 color: #ffffff !important;
                 cursor: pointer;
                 font-weight: bold;
-                padding: 6px 4px !important;
-                border-radius: 6px !important;
+                font-size: 10px !important;
+                padding: 4px 3px !important;
+                border-radius: 5px !important;
                 transition: background 0.15s ease;
             }
             td.leftSideMenu.tm-collapsed .tm-sidebar-persistent input#timesheet_button:hover {
