@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      1.6
+// @version      1.7
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -16,8 +16,8 @@
     console.log('[TM Modern Auftrag Toolbar by kimrioter] Start');
 
     const COLORS = {
-        accent: '#800000',       // Prologistics Burgundy Red
-        accentHover: '#660000',  // Ciemniejsze bordo na hover
+        accent: '#750000',       // Prologistics Burgundy Red
+        accentHover: '#5b0000',  // Ciemniejsze bordo na hover
         textDark: '#1e293b',
         bgPill: '#ffffff',
         border: '#cbd5e1'
@@ -41,7 +41,7 @@
                 align-items: center !important;
                 justify-content: center !important;
                 flex-wrap: wrap !important;
-                gap: 8px !important;
+                gap: 16px !important;
                 margin: 16px auto !important;
                 padding: 8px 12px !important;
                 background: #ffffff !important;
@@ -93,7 +93,7 @@
                 background-color: ${COLORS.accent} !important;
                 color: #ffffff !important;
                 border-color: ${COLORS.accent} !important;
-                box-shadow: 0 2px 4px rgba(128, 0, 0, 0.2) !important;
+                box-shadow: 0 2px 4px rgba(117, 0, 0, 0.2) !important;
             }
 
             .tm-btn-primary:hover {
@@ -101,7 +101,7 @@
                 color: #ffffff !important;
                 border-color: ${COLORS.accentHover} !important;
                 transform: translateY(-1px) !important;
-                box-shadow: 0 4px 10px rgba(102, 0, 0, 0.35) !important;
+                box-shadow: 0 4px 10px rgba(91, 0, 0, 0.35) !important;
             }
 
             /* Przycisk nieaktywny (np. Change Order dla wysłanego zamówienia) */
