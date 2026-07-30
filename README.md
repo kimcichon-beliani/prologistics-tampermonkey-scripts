@@ -55,6 +55,10 @@ Działa na każdej stronie (np. Mirakl/Maxeda). Po zaznaczeniu dowolnego tekstu 
 **Express Label Generator — RMA**
 Na stronie `rma.php` po kliknięciu przycisku "Label for client" automatycznie generuje pełną etykietę klienta w nowej karcie (wybierając domyślnie brak magazynu) i natychmiast zamyka pop-up "Choose warehouse", eliminując zbędne ręczne kliknięcia.
 
+### 🧭 modern-auftrag-toolbar.user.js
+**Nowoczesny pasek nawigacji — Auftrag**
+Na stronie `auction.php` całkowicie zastępuje stary, surowy pasek nawigacyjny nowym, eleganckim panelem. Skraca etykiety przycisków (np. "Go to Article" → "Article", "Open New Ticket" → "New Ticket"), dodaje płynne przewijanie do sekcji (smooth scroll) oraz wyraźnie wyróżnia najważniejsze akcje ("New Ticket" i aktywny "Change Order") kolorem bordowym, dopasowanym do identyfikacji wizualnej systemu ProLogistics.
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
