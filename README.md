@@ -57,7 +57,7 @@ Na stronie `rma.php` po kliknięciu przycisku "Label for client" automatycznie g
 
 ### 🧭 modern-auftrag-toolbar.user.js
 **Nowoczesny pasek nawigacji — Auftrag**
-Na stronie `auction.php` całkowicie zastępuje stary, surowy pasek nawigacyjny nowym, eleganckim panelem. Skraca etykiety przycisków (np. "Go to Article" → "Article", "Open New Ticket" → "New Ticket"), dodaje płynne przewijanie do sekcji (smooth scroll) oraz wyraźnie wyróżnia najważniejsze akcje ("New Ticket" i aktywny "Change Order") kolorem bordowym, dopasowanym do identyfikacji wizualnej systemu ProLogistics.
+Na stronie `auction.php` całkowicie zastępuje stary, surowy pasek nawigacyjny nowym, eleganckim panelem. Skraca etykiety przycisków (np. "Go to Article" → "Article", "Open New Ticket" → "New Ticket"), dodaje płynne przewijanie do sekcji (smooth scroll) oraz wyraźnie wyróżnia najważniejsze akcje ("New Ticket" i aktywny "Change Order") kolorem bordowym, dopasowanym do identyfikacji wizualnej systemu Prologistics.
 
 ## Uwagi
 
