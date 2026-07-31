@@ -59,6 +59,15 @@ Na stronie `rma.php` po kliknięciu przycisku "Label for client" automatycznie g
 **Nowoczesny pasek nawigacji — Auftrag**
 Na stronie `auction.php` całkowicie zastępuje stary, surowy pasek nawigacyjny nowym, eleganckim panelem. Skraca etykiety przycisków (np. "Go to Article" → "Article", "Open New Ticket" → "New Ticket"), dodaje płynne przewijanie do sekcji (smooth scroll) oraz wyraźnie wyróżnia najważniejsze akcje ("New Ticket" i aktywny "Change Order") kolorem bordowym, dopasowanym do identyfikacji wizualnej systemu Prologistics.
 
+### 🌙 prologistics-dark-mode-toggle.user.js
+**Tryb Ciemny (Dark Mode) — Prologistics**
+Dodaje wygodny, pływający przełącznik trybu ciemnego i jasnego w prawym górnym rogu ekranu[cite: 3]. Skrypt działa uniwersalnie na każdej podstronie systemu, odwracając kolory za pomocą zaawansowanych filtrów CSS. 
+
+Kluczowe cechy:
+* **Brak "błysku" ekranu:** Wczytuje zapamiętany motyw natychmiast na samym początku ładowania strony (`document-start`), całkowicie eliminując irytujące mignięcia białego tła podczas odświeżania.
+* **Ochrona obrazów:** Inteligentnie identyfikuje multimedia (zdjęcia, wideo, iframe) i przywraca im oryginalne barwy, dzięki czemu nie wyglądają jak negatyw fotograficzny.
+* **Trwała pamięć:** Zapisuje Twój wybór lokalnie, więc raz włączony tryb ciemny będzie witał Cię przy każdym kolejnym logowaniu do systemu.
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
