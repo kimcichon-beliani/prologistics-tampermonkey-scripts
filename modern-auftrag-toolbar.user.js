@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      1.7
+// @version      1.8
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v1.8');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -42,7 +42,7 @@
                 justify-content: center !important;
                 flex-wrap: wrap !important;
                 gap: 16px !important;
-                margin: 16px auto !important;
+                margin: 16px 0 !important;
                 padding: 8px 12px !important;
                 background: #ffffff !important;
                 border: 1px solid #e2e8f0 !important;
@@ -50,6 +50,14 @@
                 box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
                 max-width: fit-content !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+
+                /* Centrowanie względem widocznego okna (viewport), a nie względem
+                   pełnej szerokości dokumentu — dzięki temu długie, nieprzełamujące się
+                   treści (np. linki w komentarzach) powodujące poziomy scroll
+                   nie przesuwają już toolbaru w prawo. */
+                position: sticky !important;
+                left: 50% !important;
+                transform: translateX(-50%) !important;
             }
 
             #tm-custom-auftrag-toolbar form {
