@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      1.8
+// @version      1.9
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v1.8');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v1.9');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -51,10 +51,7 @@
                 max-width: fit-content !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
 
-                /* Centrowanie względem widocznego okna (viewport), a nie względem
-                   pełnej szerokości dokumentu — dzięki temu długie, nieprzełamujące się
-                   treści (np. linki w komentarzach) powodujące poziomy scroll
-                   nie przesuwają już toolbaru w prawo. */
+                /* Centrowanie względem viewportu, nie dokumentu */
                 position: sticky !important;
                 left: 50% !important;
                 transform: translateX(-50%) !important;
@@ -125,6 +122,25 @@
         document.head.appendChild(style);
     }
 
+    // Szukamy oryginalnego przycisku "Change Order" - najpierw po standardowych
+    // selektorach, a jeśli to nie zadziała (inna struktura na danej podstronie),
+    // fallback po samej treści tekstowej. Dzięki temu wykrywanie jest odporne
+    // na różnice w markupie między podstronami.
+    function findChangeOrderElement(oldToolbar) {
+        let el = oldToolbar.querySelector(
+            'a[href*="change"], span[title*="shipped"], .auftrag-toolbar__btn--disabled'
+        );
+        if (el) return el;
+
+        const candidates = oldToolbar.querySelectorAll('a, span, button');
+        for (const c of candidates) {
+            if (c.textContent.trim().toLowerCase().includes('change order')) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     function replaceToolbar() {
         const oldToolbar = document.querySelector('.auftrag-toolbar');
         if (!oldToolbar || document.getElementById('tm-custom-auftrag-toolbar')) return;
@@ -155,17 +171,35 @@
         });
 
         // 2. Change Order
-        const oldChangeBtn = oldToolbar.querySelector('a[href*="change"], span[title*="shipped"], .auftrag-toolbar__btn--disabled');
-        const isChangeDisabled = oldChangeBtn ? oldChangeBtn.classList.contains('auftrag-toolbar__btn--disabled') : false;
+        // WAŻNE: nie tworzymy nowego elementu i nie kopiujemy tylko href —
+        // jeśli oryginalny przycisk działa przez onclick / JS listener (nie tylko href),
+        // kopiowanie samego atrybutu href gubi tę logikę i przycisk wygląda aktywny,
+        // ale nic nie robi po kliknięciu.
+        // Zamiast tego PRZENOSIMY oryginalny element do nowego toolbaru
+        // (appendChild na istniejącym nodzie przenosi go, nie klonuje) —
+        // wszystkie oryginalne atrybuty i handlery zostają zachowane,
+        // a my tylko nadpisujemy klasy/tekst pod nowy wygląd.
+        const oldChangeBtn = findChangeOrderElement(oldToolbar);
+        let changeBtn;
 
-        const changeBtn = document.createElement(isChangeDisabled ? 'span' : 'a');
-        changeBtn.className = `tm-toolbar-btn ${isChangeDisabled ? 'tm-btn-disabled' : 'tm-btn-primary'}`;
-        changeBtn.textContent = 'Change Order';
+        if (oldChangeBtn) {
+            const isChangeDisabled =
+                oldChangeBtn.classList.contains('auftrag-toolbar__btn--disabled') ||
+                oldChangeBtn.tagName.toLowerCase() === 'span';
 
-        if (isChangeDisabled) {
-            changeBtn.title = 'You cannot change the order for a shipped Auftrag';
-        } else if (oldChangeBtn && oldChangeBtn.getAttribute('href')) {
-            changeBtn.href = oldChangeBtn.getAttribute('href');
+            changeBtn = oldChangeBtn; // przenosimy, nie kopiujemy
+            changeBtn.textContent = 'Change Order';
+            changeBtn.className = `tm-toolbar-btn ${isChangeDisabled ? 'tm-btn-disabled' : 'tm-btn-primary'}`;
+
+            if (isChangeDisabled) {
+                changeBtn.title = 'You cannot change the order for a shipped Auftrag';
+            }
+        } else {
+            // Fallback, jeśli w ogóle nie znaleziono przycisku w starym toolbarze
+            changeBtn = document.createElement('span');
+            changeBtn.className = 'tm-toolbar-btn tm-btn-disabled';
+            changeBtn.textContent = 'Change Order';
+            changeBtn.title = 'Nie znaleziono oryginalnego przycisku Change Order';
         }
 
         newToolbar.appendChild(changeBtn);
