@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tryb ciemny — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      1.1
+// @version      1.2
 // @description  Dodaje przełącznik trybu ciemnego/jasnego w prawym górnym rogu strony
 // @author       kimrioter
 // @match        https://www.prologistics.info/*
@@ -44,10 +44,12 @@
             filter: invert(1) hue-rotate(180deg) !important;
         }
 
+        /* Pozycja suwaka — zjeżdżamy poniżej górnego paska, żeby nie nachodzić
+           na przyciski innych skryptów. Większy "right" = suwak bardziej w lewo. */
         #tm-dark-mode-toggle {
             position: fixed;
-            top: 14px;
-            right: 14px;
+            top: 60px;
+            right: 28px;
             z-index: 999999;
             width: 56px;
             height: 28px;
