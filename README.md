@@ -68,6 +68,15 @@ Kluczowe cechy:
 * **Ochrona obrazów:** Inteligentnie identyfikuje multimedia (zdjęcia, wideo, iframe) i przywraca im oryginalne barwy, dzięki czemu nie wyglądają jak negatyw fotograficzny.
 * **Trwała pamięć:** Zapisuje Twój wybór lokalnie, więc raz włączony tryb ciemny będzie witał Cię przy każdym kolejnym logowaniu do systemu.
 
+  ### 📋 rma-auftrag-copy.user.js
+
+**Copy numeru Auftrag + przypięte dane wysyłkowe — RMA** Dodaje dwa usprawnienia na stronie ticketów RMA:
+
+- przycisk **copy** obok numeru Auftrag w sekcji "Auftrag Details" — kopiuje sam numer zamówienia, bez pozycji (`15333852 / 3` → `15333852`), link do orderu pozostaje klikalny,
+- przypiętą w prawym górnym rogu tabelkę **Customer Data (shipping)** z numerem ticketu i danymi wysyłkowymi klienta (Company, Name, Address, Phone, Mobile, Email) — widoczną cały czas podczas scrollowania, bez suffiksu "(Shipping)" w etykietach.
+
+Linki w polach Address i Email pozostają aktywne. Tabelkę można zwinąć klikając w nagłówek — stan jest zapamiętywany. Działa na `rma.php`.
+
 ## Uwagi
 
 - Wszystkie skrypty działają na domenie `https://www.prologistics.info/`.
