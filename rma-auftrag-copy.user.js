@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Prologistics – RMA Auftrag # Copy Button
+// @name         Prologistics – RMA Auftrag # Copy + Shipping Panel
 // @namespace    kimrioter
-// @version      1.0.0
-// @description  Dodaje mały przycisk "copy" obok numeru Auftrag w sekcji Auftrag Details na rma.php – kopiuje tylko numer zamówienia (bez " / 3"). Link pozostaje klikalny.
+// @version      1.3.2
+// @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka "Customer Data (shipping)" z nr ticketu i danymi wysyłkowymi klienta.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -16,11 +16,16 @@
 
     const LOG_PREFIX = '[TM script by kimrioter]';
     const BRAND = '#750000';
-    const MARK = 'data-kr-copy-btn'; // znacznik, żeby nie dodawać przycisku dwa razy
+    const MARK = 'data-kr-copy-btn';          // znacznik dla przycisku copy
+    const PANEL_ID = 'kr-shipping-panel';
+    const LS_COLLAPSED = 'kr_shipping_panel_collapsed';
 
-    /* ---------- style przycisku ---------- */
+    /* ============================================================
+       STYLE
+       ============================================================ */
     const style = document.createElement('style');
     style.textContent = `
+        /* --- przycisk copy przy Auftrag # --- */
         .kr-copy-btn {
             display: inline-flex;
             align-items: center;
@@ -39,17 +44,90 @@
             border-radius: 3px;
             cursor: pointer;
             vertical-align: middle;
-            transition: background .15s ease, color .15s ease;
+            transition: background .15s ease;
             user-select: none;
         }
         .kr-copy-btn:hover { background: #a00000; border-color: #a00000; }
         .kr-copy-btn.kr-copied { background: #2e7d32; border-color: #2e7d32; }
+
+        /* --- przypięta tabelka shipping --- */
+        #${PANEL_ID} {
+            position: fixed;
+            top: 12px;
+            right: 100px;  /* odsunięte w lewo, żeby nie nachodziło na przycisk dark mode */
+            z-index: 99999;
+            width: 300px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            background: #fff;
+            border: 1px solid ${BRAND};
+            border-radius: 4px;
+            box-shadow: 0 3px 10px rgba(0,0,0,.25);
+            overflow: hidden;
+        }
+        #${PANEL_ID} .kr-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            background: ${BRAND};
+            color: #fff;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+        }
+        #${PANEL_ID} .kr-panel-toggle {
+            font-size: 12px;
+            line-height: 1;
+            opacity: .85;
+        }
+        #${PANEL_ID} .kr-panel-body { padding: 6px 8px 8px; }
+        #${PANEL_ID}.kr-collapsed .kr-panel-body { display: none; }
+
+        #${PANEL_ID} table { border-collapse: collapse; width: 100%; }
+        #${PANEL_ID} td {
+            padding: 3px 2px;
+            vertical-align: top;
+            border-bottom: 1px solid #eee;
+            word-break: break-word;
+        }
+        #${PANEL_ID} tr:last-child td { border-bottom: none; }
+        #${PANEL_ID} td.kr-label {
+            width: 72px;
+            font-weight: bold;
+            color: #333;
+            white-space: nowrap;
+        }
+        #${PANEL_ID} td.kr-value { color: #000; }
+        #${PANEL_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
+        #${PANEL_ID} td.kr-value a:hover { text-decoration: underline; }
+        #${PANEL_ID} td.kr-value.kr-empty { color: #aaa; }
+        #${PANEL_ID} td.kr-value.kr-highlight {
+            font-weight: bold;
+            color: ${BRAND};
+        }
+        #${PANEL_ID} td.kr-ticket {
+            text-align: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px !important;   /* dokładnie jak Company / Name / Address */
+            font-weight: bold;
+            line-height: 1.3;
+            letter-spacing: 0;
+            color: ${BRAND};
+            padding: 3px 2px;
+            background: #faf4f4;
+            user-select: text;            /* łatwe zaznaczanie i kopiowanie numeru */
+            cursor: text;
+        }
     `;
     document.head.appendChild(style);
 
-    /* ---------- pomocnicze ---------- */
+    /* ============================================================
+       POMOCNICZE
+       ============================================================ */
 
-    // wyciąga sam numer zamówienia: "15333852 / 3" -> "15333852"
+    // "15333852 / 3" -> "15333852"
     function extractAuftragNumber(text) {
         if (!text) return null;
         const cleaned = text.replace(/\u00a0/g, ' ').trim();
@@ -58,7 +136,10 @@
         return match ? match[0] : null;
     }
 
-    // kopiowanie do schowka (z fallbackiem dla starszych/nie-HTTPS kontekstów)
+    function normalize(text) {
+        return (text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
     function copyToClipboard(text) {
         if (typeof GM_setClipboard === 'function') {
             GM_setClipboard(text, 'text');
@@ -84,7 +165,11 @@
         });
     }
 
-    function buildButton(getNumber) {
+    /* ============================================================
+       1) PRZYCISK COPY PRZY AUFTRAG #
+       ============================================================ */
+
+    function buildCopyButton(getNumber) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'kr-copy-btn';
@@ -93,7 +178,7 @@
 
         btn.addEventListener('click', function (e) {
             e.preventDefault();
-            e.stopPropagation(); // żeby nie odpalić linku obok
+            e.stopPropagation();
             const number = getNumber();
             if (!number) {
                 console.warn(LOG_PREFIX, 'Nie udało się odczytać numeru Auftrag.');
@@ -107,57 +192,209 @@
                     btn.textContent = 'copy';
                     btn.classList.remove('kr-copied');
                 }, 1200);
-            }).catch(err => {
-                console.error(LOG_PREFIX, 'Błąd kopiowania:', err);
-            });
+            }).catch(err => console.error(LOG_PREFIX, 'Błąd kopiowania:', err));
         });
 
         return btn;
     }
 
-    /* ---------- główna logika ---------- */
-
-    function processPage() {
-        const cells = document.querySelectorAll('td, th');
-
-        cells.forEach(labelCell => {
-            const label = labelCell.textContent.replace(/\u00a0/g, ' ').trim();
+    function addAuftragCopyButtons() {
+        document.querySelectorAll('td, th').forEach(labelCell => {
+            const label = normalize(labelCell.textContent);
             if (label !== 'Auftrag #' && label !== 'Auftrag#') return;
 
-            // komórka z wartością – zwykle sąsiednia; jeśli nie ma, sprawdzamy tę samą
             let valueCell = labelCell.nextElementSibling;
             if (!valueCell || !extractAuftragNumber(valueCell.textContent)) {
                 valueCell = labelCell.querySelector('a') ? labelCell : valueCell;
             }
-            if (!valueCell) return;
-            if (valueCell.hasAttribute(MARK)) return; // już obsłużone
+            if (!valueCell || valueCell.hasAttribute(MARK)) return;
 
             const link = valueCell.querySelector('a');
             const sourceEl = link || valueCell;
-            const number = extractAuftragNumber(sourceEl.textContent);
-            if (!number) return;
+            if (!extractAuftragNumber(sourceEl.textContent)) return;
 
-            const btn = buildButton(() => extractAuftragNumber(sourceEl.textContent));
-
-            // wstawiamy przycisk zaraz za linkiem – link zostaje w pełni klikalny
+            const btn = buildCopyButton(() => extractAuftragNumber(sourceEl.textContent));
             if (link && link.parentNode) {
                 link.insertAdjacentElement('afterend', btn);
             } else {
                 valueCell.appendChild(btn);
             }
-
             valueCell.setAttribute(MARK, '1');
-            console.log(LOG_PREFIX, 'Dodano przycisk copy dla Auftrag:', number);
         });
     }
 
-    processPage();
+    /* ============================================================
+       2) PRZYPIĘTA TABELKA CUSTOMER DATA (SHIPPING)
+       ============================================================ */
 
-    // strona może doładowywać treść dynamicznie – obserwujemy zmiany DOM
+    // pola: [etykieta w nowej tabelce, etykieta oryginalna na stronie]
+    const FIELDS = [
+        ['Company', 'Company (Shipping)'],
+        ['Name',    'Name (Shipping)'],
+        ['Address', 'Address (Shipping)'],
+        ['Phone',   'Phone'],
+        ['Mobile',  'Mobile'],
+        ['Email',   'Email']
+    ];
+
+    // znajduje komórkę wartości dla podanej etykiety (w obrębie kontenera)
+    function findValueCell(scope, labelText) {
+        const cells = scope.querySelectorAll('td, th');
+        for (const cell of cells) {
+            if (normalize(cell.textContent) === labelText) {
+                const next = cell.nextElementSibling;
+                if (next) return next;
+            }
+        }
+        return null;
+    }
+
+    // wyciąga numer ticketu z nagłówka strony (fallback: parametry URL)
+    function findTicketNumber() {
+        const candidates = document.querySelectorAll('h1, h2, h3, h4, b, strong, font, span, div, td');
+        for (const el of candidates) {
+            const text = normalize(el.textContent);
+            if (text.length > 40) continue;          // pomijamy duże kontenery
+            const m = text.match(/^Ticket\s*#\s*(\d+)/i);
+            if (m) return m[1];
+        }
+        const params = new URLSearchParams(location.search);
+        for (const key of ['ticket_id', 'ticketid', 'ticket', 'id']) {
+            const val = params.get(key);
+            if (val && /^\d+$/.test(val)) return val;
+        }
+        return null;
+    }
+
+    // ustala kontener tabeli Customer Data – kotwiczymy się na unikalnej etykiecie
+    function findCustomerScope() {
+        const cells = document.querySelectorAll('td, th');
+        for (const cell of cells) {
+            if (normalize(cell.textContent) === 'Address (Shipping)') {
+                return cell.closest('table') || document.body;
+            }
+        }
+        return null;
+    }
+
+    function buildPanel(rows) {
+        const panel = document.createElement('div');
+        panel.id = PANEL_ID;
+
+        const head = document.createElement('div');
+        head.className = 'kr-panel-head';
+        head.innerHTML = `<span>Customer Data (shipping)</span><span class="kr-panel-toggle">▾</span>`;
+
+        const body = document.createElement('div');
+        body.className = 'kr-panel-body';
+
+        const table = document.createElement('table');
+        rows.forEach(({ label, cell, text, highlight, fullWidth }) => {
+            const tr = document.createElement('tr');
+
+            // wiersz na całą szerokość (numer ticketu) – wyśrodkowany, bez osobnej kolumny etykiety
+            if (fullWidth) {
+                const td = document.createElement('td');
+                td.className = 'kr-ticket';
+                td.colSpan = 2;
+                td.textContent = label + ' ' + text;
+                tr.appendChild(td);
+                table.appendChild(tr);
+                return;
+            }
+
+            const tdLabel = document.createElement('td');
+            tdLabel.className = 'kr-label';
+            tdLabel.textContent = label;
+
+            const tdValue = document.createElement('td');
+            tdValue.className = 'kr-value';
+            if (highlight) tdValue.classList.add('kr-highlight');
+
+            if (text) {
+                tdValue.textContent = text;
+            } else if (cell && normalize(cell.textContent)) {
+                // klonujemy zawartość – dzięki temu linki (Address, Email) zostają aktywne
+                Array.from(cell.childNodes).forEach(node => {
+                    tdValue.appendChild(node.cloneNode(true));
+                });
+            } else {
+                tdValue.classList.add('kr-empty');
+                tdValue.textContent = '–';
+            }
+
+            tr.appendChild(tdLabel);
+            tr.appendChild(tdValue);
+            table.appendChild(tr);
+        });
+
+        body.appendChild(table);
+        panel.appendChild(head);
+        panel.appendChild(body);
+
+        // zwijanie / rozwijanie – stan zapamiętany w localStorage
+        if (localStorage.getItem(LS_COLLAPSED) === '1') {
+            panel.classList.add('kr-collapsed');
+            head.querySelector('.kr-panel-toggle').textContent = '▸';
+        }
+        head.addEventListener('click', () => {
+            panel.classList.toggle('kr-collapsed');
+            const collapsed = panel.classList.contains('kr-collapsed');
+            head.querySelector('.kr-panel-toggle').textContent = collapsed ? '▸' : '▾';
+            localStorage.setItem(LS_COLLAPSED, collapsed ? '1' : '0');
+        });
+
+        return panel;
+    }
+
+    function buildShippingPanel() {
+        const scope = findCustomerScope();
+        if (!scope) return;
+
+        const rows = FIELDS.map(([label, original]) => ({
+            label,
+            cell: findValueCell(scope, original)
+        }));
+
+        // jeśli nie ma żadnych danych – nie pokazujemy pustego panelu
+        const hasData = rows.some(r => r.cell && normalize(r.cell.textContent));
+
+        // numer ticketu jako pierwszy wiersz
+        const ticket = findTicketNumber();
+        if (ticket) {
+            rows.unshift({ label: 'Ticket', text: '#' + ticket, fullWidth: true });
+        }
+        if (!hasData) return;
+
+        const old = document.getElementById(PANEL_ID);
+        if (old) old.remove();
+
+        document.body.appendChild(buildPanel(rows));
+        console.log(LOG_PREFIX, 'Panel Customer Data (shipping) odświeżony.');
+    }
+
+    /* ============================================================
+       START + OBSERWATOR DOM
+       ============================================================ */
+
+    function run() {
+        addAuftragCopyButtons();
+        buildShippingPanel();
+    }
+
+    run();
+
     let timer = null;
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver(mutations => {
+        // ignorujemy zmiany wywołane przez sam panel
+        const relevant = mutations.some(m => {
+            const t = m.target;
+            return !(t.closest && t.closest('#' + PANEL_ID));
+        });
+        if (!relevant) return;
+
         clearTimeout(timer);
-        timer = setTimeout(processPage, 200);
+        timer = setTimeout(run, 300);
     });
     observer.observe(document.body, { childList: true, subtree: true });
 })();
