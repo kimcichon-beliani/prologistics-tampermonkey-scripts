@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Shipping Panel
 // @namespace    kimrioter
-// @version      1.4.0
+// @version      1.4.1
 // @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka "Customer Data (shipping)" z nr ticketu i danymi wysyłkowymi klienta.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -79,10 +79,18 @@
             user-select: none;
         }
         #${PANEL_ID} .kr-panel-toggle {
-            font-size: 12px;
+            display: inline-block;
+            width: 12px;
+            flex: 0 0 12px;
+            text-align: center;
+            font-size: 10px;
             line-height: 1;
             opacity: .85;
+            /* jeden glif obracany o 90° – dzięki temu nic się nie przesuwa przy zwijaniu */
+            transform-origin: 50% 50%;
+            transition: transform .15s ease;
         }
+        #${PANEL_ID}.kr-collapsed .kr-panel-toggle { transform: rotate(-90deg); }
         #${PANEL_ID} .kr-panel-body { padding: 6px 8px 8px; }
         #${PANEL_ID}.kr-collapsed .kr-panel-body { display: none; }
 
@@ -345,15 +353,14 @@
         panel.appendChild(head);
         panel.appendChild(body);
 
-        // zwijanie / rozwijanie – stan zapamiętany w localStorage
+        // zwijanie / rozwijanie – stan zapamiętany w localStorage.
+        // Strzałka to zawsze ten sam znak; kierunek robi CSS-owy obrót, więc nic nie skacze.
         if (localStorage.getItem(LS_COLLAPSED) === '1') {
             panel.classList.add('kr-collapsed');
-            head.querySelector('.kr-panel-toggle').textContent = '▸';
         }
         head.addEventListener('click', () => {
             panel.classList.toggle('kr-collapsed');
             const collapsed = panel.classList.contains('kr-collapsed');
-            head.querySelector('.kr-panel-toggle').textContent = collapsed ? '▸' : '▾';
             localStorage.setItem(LS_COLLAPSED, collapsed ? '1' : '0');
         });
 
