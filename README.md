@@ -33,7 +33,7 @@ Na stronie `react/settings_page/import_tool/`, w liście "Import setting" (widoc
 
 ### 📐 sidebar-collapse.user.js
 **Zwijany sidebar — Prologistics**
-Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". Po zwinięciu wciąż widoczne (w formie pionowego tekstu, przyklejonego do lewej krawędzi i przewijającego się z użytkownikiem) pozostają: link "Logout" oraz czas pracy z przyciskiem "LOG OUT". Stan (zwinięty/rozwinięty) jest zapamiętywany między odświeżeniami strony. Nie działa na podstronach `/react/` (dynamiczne aplikacje React mają już nowocześniejszy interfejs i mogłyby kolidować ze skryptem).
+Pozwala schować/rozwinąć boczne menu w dowolnym momencie przyciskiem "☰". Po zwinięciu wciąż widoczne (w formie pionowego tekstu, przyklejonego do lewej krawędzi i przewijającego się z użytkownikiem) pozostają: link "Logout" oraz czas pracy z przyciskiem "LOG OUT". Stan (zwinięty/rozwinięty) jest zapamiętywany między odświeżeniami strony.
 
 ### 🔤 sellers-sort.user.js
 **Sortowanie list Sellers + Source seller — Calculations**
