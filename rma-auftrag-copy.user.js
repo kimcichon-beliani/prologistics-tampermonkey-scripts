@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Shipping Panel
 // @namespace    kimrioter
-// @version      1.3.2
+// @version      1.4.0
 // @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka "Customer Data (shipping)" z nr ticketu i danymi wysyłkowymi klienta.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -19,6 +19,7 @@
     const MARK = 'data-kr-copy-btn';          // znacznik dla przycisku copy
     const PANEL_ID = 'kr-shipping-panel';
     const LS_COLLAPSED = 'kr_shipping_panel_collapsed';
+    const SIG_ATTR = 'data-kr-signature';   // sygnatura treści panelu
 
     /* ============================================================
        STYLE
@@ -99,7 +100,11 @@
             color: #333;
             white-space: nowrap;
         }
-        #${PANEL_ID} td.kr-value { color: #000; }
+        #${PANEL_ID} td.kr-value {
+            color: #000;
+            user-select: text;
+            cursor: text;
+        }
         #${PANEL_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
         #${PANEL_ID} td.kr-value a:hover { text-decoration: underline; }
         #${PANEL_ID} td.kr-value.kr-empty { color: #aaa; }
@@ -138,6 +143,14 @@
 
     function normalize(text) {
         return (text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    // czy użytkownik ma aktywne zaznaczenie wewnątrz podanego elementu?
+    function hasSelectionInside(el) {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        return el.contains(range.startContainer) || el.contains(range.endContainer);
     }
 
     function copyToClipboard(text) {
@@ -366,10 +379,24 @@
         }
         if (!hasData) return;
 
-        const old = document.getElementById(PANEL_ID);
-        if (old) old.remove();
+        // sygnatura treści – panel przebudowujemy TYLKO gdy dane faktycznie się zmieniły.
+        // Bez tego licznik czasu w menu bocznym generował mutacje DOM co sekundę,
+        // panel był budowany od nowa i gubiło się zaznaczenie tekstu.
+        const signature = rows
+            .map(r => r.label + '=' + (r.text || (r.cell ? normalize(r.cell.textContent) : '')))
+            .join('|');
 
-        document.body.appendChild(buildPanel(rows));
+        const existing = document.getElementById(PANEL_ID);
+        if (existing && existing.getAttribute(SIG_ATTR) === signature) return;
+
+        // dodatkowe zabezpieczenie: nie ruszamy panelu, gdy użytkownik właśnie zaznacza w nim tekst
+        if (existing && hasSelectionInside(existing)) return;
+
+        const panel = buildPanel(rows);
+        panel.setAttribute(SIG_ATTR, signature);
+
+        if (existing) existing.remove();
+        document.body.appendChild(panel);
         console.log(LOG_PREFIX, 'Panel Customer Data (shipping) odświeżony.');
     }
 
