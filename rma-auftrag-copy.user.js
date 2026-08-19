@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Customer Panel
 // @namespace    kimrioter
-// @version      1.5.0
+// @version      1.6.0
 // @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka z nr ticketu, nr Auftrag i danymi klienta – z przełącznikiem Shipping / Billing.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -150,6 +150,18 @@
         #${PANEL_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
         #${PANEL_ID} td.kr-value a:hover { text-decoration: underline; }
         #${PANEL_ID} td.kr-value.kr-empty { color: #aaa; }
+        #${PANEL_ID} td.kr-ident .kr-ident-link {
+            color: ${BRAND};
+            text-decoration: none;
+            border-bottom: 1px dotted ${BRAND};
+        }
+        #${PANEL_ID} td.kr-ident .kr-ident-link:hover { text-decoration: none; border-bottom-style: solid; }
+        #${PANEL_ID} td.kr-ident .kr-copy-btn {
+            height: 14px;
+            min-width: 20px;
+            font-size: 9px;
+            margin-left: 5px;
+        }
         #${PANEL_ID} td.kr-ident {
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
@@ -328,8 +340,8 @@
         return null;
     }
 
-    // wyciąga numer Auftrag z sekcji Auftrag Details (bez pozycji)
-    function findAuftragNumber() {
+    // wyciąga numer Auftrag z sekcji Auftrag Details (bez pozycji) wraz z linkiem do orderu
+    function findAuftragInfo() {
         const cells = document.querySelectorAll('td, th');
         for (const cell of cells) {
             const label = normalize(cell.textContent);
@@ -337,12 +349,14 @@
             const valueCell = cell.nextElementSibling;
             if (!valueCell) continue;
             const num = extractAuftragNumber(valueCell.textContent);
-            if (num) return num;
+            if (!num) continue;
+            const link = valueCell.querySelector('a');
+            return { number: num, href: link ? link.href : null };
         }
         const params = new URLSearchParams(location.search);
         for (const key of ['auction_number', 'auftrag', 'auction']) {
             const val = params.get(key);
-            if (val && /^\d+$/.test(val)) return val;
+            if (val && /^\d+$/.test(val)) return { number: val, href: null };
         }
         return null;
     }
@@ -393,7 +407,7 @@
         body.className = 'kr-panel-body';
 
         const table = document.createElement('table');
-        rows.forEach(({ label, cell, text, fullWidth }) => {
+        rows.forEach(({ label, cell, text, fullWidth, href, copyable }) => {
             const tr = document.createElement('tr');
 
             // wiersz na całą szerokość (nr ticketu / nr Auftrag) – wyśrodkowany
@@ -401,7 +415,25 @@
                 const td = document.createElement('td');
                 td.className = 'kr-ident';
                 td.colSpan = 2;
-                td.textContent = label + ' ' + text;
+
+                td.appendChild(document.createTextNode(label + ' '));
+
+                if (href) {
+                    // numer jako link do strony orderu – zaznaczanie tekstu nadal działa
+                    const a = document.createElement('a');
+                    a.href = href;
+                    a.textContent = text;
+                    a.className = 'kr-ident-link';
+                    a.title = 'Otwórz Auftrag';
+                    td.appendChild(a);
+                } else {
+                    td.appendChild(document.createTextNode(text));
+                }
+
+                if (copyable) {
+                    td.appendChild(buildCopyButton(() => extractAuftragNumber(text) || text));
+                }
+
                 tr.appendChild(td);
                 table.appendChild(tr);
                 return;
@@ -462,8 +494,16 @@
         if (!hasData) return;
 
         // identyfikatory na górze panelu
-        const auftrag = findAuftragNumber();
-        if (auftrag) rows.unshift({ label: 'Auftrag', text: auftrag, fullWidth: true });
+        const auftrag = findAuftragInfo();
+        if (auftrag) {
+            rows.unshift({
+                label: 'Auftrag',
+                text: auftrag.number,
+                href: auftrag.href,
+                copyable: true,
+                fullWidth: true
+            });
+        }
 
         const ticket = findTicketNumber();
         if (ticket) rows.unshift({ label: 'Ticket', text: '#' + ticket, fullWidth: true });
@@ -472,7 +512,7 @@
         // Bez tego licznik czasu w menu bocznym generował mutacje DOM co sekundę,
         // panel był budowany od nowa i gubiło się zaznaczenie tekstu.
         const signature = currentMode + '::' + rows
-            .map(r => r.label + '=' + (r.text || (r.cell ? normalize(r.cell.textContent) : '')))
+            .map(r => r.label + '=' + (r.text || (r.cell ? normalize(r.cell.textContent) : '')) + (r.href || ''))
             .join('|');
 
         const existing = document.getElementById(PANEL_ID);
