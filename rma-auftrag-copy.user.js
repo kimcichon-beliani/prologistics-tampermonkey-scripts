@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      1.8.1
+// @version      1.9.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -200,11 +200,13 @@
         #${PRICES_ID} td.kr-group {
             font-weight: bold;
             color: #333;
-            background: #f2f2f2;
+            background: #e6efe6;      /* jak zielona belka produktu na stronie */
+            border-top: 1px solid #bbb;
             padding: 4px 4px;
             line-height: 1.3;
             user-select: text;
         }
+        #${PRICES_ID} tr:first-child td.kr-group { border-top: none; }
         #${PRICES_ID} td.kr-price-id {
             width: 34px;
             white-space: nowrap;
@@ -615,30 +617,51 @@
         return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
     }
 
-    // czy tabela zawiera nagłówek cen zwrotów?
+    // czy tabela wygląda na tabelę cen? (nagłówek kolumny "Shipping price ...")
     function isPriceTable(table) {
         return Array.from(table.rows || []).some(r =>
-            Array.from(r.cells).some(c => /shipping price per 1 piece/i.test(normalize(c.textContent)))
+            Array.from(r.cells).some(c => /^shipping price/i.test(normalize(c.textContent)))
         );
     }
 
-    // tytuł produktu ("1 x 37349: Coffee table, ...") – najpierw szukamy w samej tabeli,
-    // potem wśród poprzedzających elementów, bo układ strony bywa różny
+    // granice sekcji "Real Return Shipping Prices" – bierzemy tylko tabele leżące
+    // między tym nagłówkiem a nagłówkiem następnej sekcji ("Liquidators' Prices")
+    function findSectionBounds() {
+        let startEl = null;
+        let endEl = null;
+
+        document.querySelectorAll('td, th, div, span, b, font').forEach(el => {
+            const text = normalize(el.textContent);
+            if (text.length > 60) return;
+            if (!startEl && /^real return shipping prices$/i.test(text)) startEl = el;
+            if (!endEl && /^liquidators.{0,3} prices$/i.test(text)) endEl = el;
+        });
+
+        return { startEl, endEl };
+    }
+
+    function isBetween(el, startEl, endEl) {
+        if (!startEl) return false;
+        const afterStart = !!(startEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+        if (!afterStart) return false;
+        if (!endEl) return true;
+        return !!(endEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING);
+    }
+
     const PRODUCT_RE = /^\d+\s*x\s*\d+\s*:/;
 
     function cleanGroupTitle(text) {
         return normalize(text).split(/\s*height:/i)[0].trim();
     }
 
+    // tytuł bloku: zielona belka produktu, a gdy jej nie ma – nagłówek nad tabelą
     function findGroupTitle(table) {
-        // wariant 1: zielona belka jest wierszem tej samej tabeli
         for (const row of Array.from(table.rows || [])) {
             for (const cell of Array.from(row.cells)) {
                 const text = normalize(cell.textContent);
                 if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
             }
         }
-        // wariant 2: belka leży wyżej / wcześniej w drzewie
         let node = table;
         for (let depth = 0; node && depth < 6; depth++) {
             let sibling = node.previousElementSibling;
@@ -647,28 +670,29 @@
                 if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
                 sibling = sibling.previousElementSibling;
             }
-            if (node.parentElement) {
-                const parentText = normalize(node.parentElement.textContent);
-                if (PRODUCT_RE.test(parentText)) return cleanGroupTitle(parentText);
-            }
             node = node.parentElement;
         }
         return null;
     }
 
-    // zbiera dane cen ze WSZYSTKICH widocznych tabel cenowych.
-    // Ukryte listy spod "Show all" mają wiersze niewidoczne, więc odpadają same,
-    // a zduplikowane bloki (strona renderuje je kilka razy obok siebie) są deduplikowane.
+    // zbiera WSZYSTKIE widoczne tabele cenowe z sekcji Real Return Shipping Prices.
+    // Ukryte listy spod "Show all" mają wiersze bez wymiarów, więc odpadają same.
     function findReturnPriceGroups() {
         const groups = [];
-        const seen = new Set();
+        const { startEl, endEl } = findSectionBounds();
+        if (!startEl) return groups;
 
-        document.querySelectorAll('table').forEach(table => {
-            if (!isPriceTable(table) || !isVisible(table)) return;
+        const tables = Array.from(document.querySelectorAll('table')).filter(t =>
+            isPriceTable(t) && isVisible(t) && isBetween(t, startEl, endEl)
+        );
+
+        tables.forEach(table => {
+            // bierzemy tylko tabele najgłębsze – jeśli w środku jest inna tabela cen, pomijamy opakowanie
+            if (Array.from(table.querySelectorAll('table')).some(inner => tables.includes(inner))) return;
 
             const rows = Array.from(table.rows || []);
             const headerIdx = rows.findIndex(r =>
-                Array.from(r.cells).some(c => /shipping price per 1 piece/i.test(normalize(c.textContent)))
+                Array.from(r.cells).some(c => /^shipping price/i.test(normalize(c.textContent)))
             );
             if (headerIdx === -1) return;
 
@@ -708,12 +732,7 @@
 
             if (!items.length) return;
 
-            const title = findGroupTitle(table);
-            const key = (title || '') + '>' + items.map(i => i.id + i.name + i.price).join('|');
-            if (seen.has(key)) return;    // ten sam blok wyrenderowany kilka razy
-            seen.add(key);
-
-            groups.push({ title, items });
+            groups.push({ title: findGroupTitle(table), items });
         });
 
         return groups;
@@ -769,7 +788,8 @@
         body.className = 'kr-panel-body';
         const table = document.createElement('table');
 
-        groups.forEach(group => {
+        groups.forEach((group, idx) => {
+            group.title = group.title || ('Blok ' + (idx + 1));
             if (group.title) {
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
