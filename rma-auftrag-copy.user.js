@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Prologistics – RMA Auftrag # Copy + Shipping Panel
+// @name         Prologistics – RMA Auftrag # Copy + Customer Panel
 // @namespace    kimrioter
-// @version      1.4.1
-// @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka "Customer Data (shipping)" z nr ticketu i danymi wysyłkowymi klienta.
+// @version      1.5.0
+// @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka z nr ticketu, nr Auftrag i danymi klienta – z przełącznikiem Shipping / Billing.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -16,10 +16,14 @@
 
     const LOG_PREFIX = '[TM script by kimrioter]';
     const BRAND = '#750000';
-    const MARK = 'data-kr-copy-btn';          // znacznik dla przycisku copy
-    const PANEL_ID = 'kr-shipping-panel';
-    const LS_COLLAPSED = 'kr_shipping_panel_collapsed';
-    const SIG_ATTR = 'data-kr-signature';   // sygnatura treści panelu
+    const MARK = 'data-kr-copy-btn';            // znacznik dla przycisku copy
+    const PANEL_ID = 'kr-customer-panel';
+    const SIG_ATTR = 'data-kr-signature';       // sygnatura treści panelu
+    const LS_COLLAPSED = 'kr_customer_panel_collapsed';
+    const LS_MODE = 'kr_customer_panel_mode';   // 'shipping' | 'billing'
+
+    // aktualnie wybrany tryb
+    let currentMode = localStorage.getItem(LS_MODE) === 'billing' ? 'billing' : 'shipping';
 
     /* ============================================================
        STYLE
@@ -51,7 +55,7 @@
         .kr-copy-btn:hover { background: #a00000; border-color: #a00000; }
         .kr-copy-btn.kr-copied { background: #2e7d32; border-color: #2e7d32; }
 
-        /* --- przypięta tabelka shipping --- */
+        /* --- przypięty panel --- */
         #${PANEL_ID} {
             position: fixed;
             top: 12px;
@@ -91,8 +95,38 @@
             transition: transform .15s ease;
         }
         #${PANEL_ID}.kr-collapsed .kr-panel-toggle { transform: rotate(-90deg); }
+
+        /* --- zakładki Shipping / Billing --- */
+        #${PANEL_ID} .kr-tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            background: #f2f2f2;
+        }
+        #${PANEL_ID} .kr-tab {
+            flex: 1 1 50%;
+            padding: 5px 0;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10px;
+            font-weight: bold;
+            text-align: center;
+            color: #666;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            user-select: none;
+            transition: color .15s ease, background .15s ease;
+        }
+        #${PANEL_ID} .kr-tab:hover { background: #e8e8e8; color: #333; }
+        #${PANEL_ID} .kr-tab.kr-active {
+            color: ${BRAND};
+            background: #fff;
+            border-bottom-color: ${BRAND};
+        }
+
         #${PANEL_ID} .kr-panel-body { padding: 6px 8px 8px; }
-        #${PANEL_ID}.kr-collapsed .kr-panel-body { display: none; }
+        #${PANEL_ID}.kr-collapsed .kr-panel-body,
+        #${PANEL_ID}.kr-collapsed .kr-tabs { display: none; }
 
         #${PANEL_ID} table { border-collapse: collapse; width: 100%; }
         #${PANEL_ID} td {
@@ -116,11 +150,7 @@
         #${PANEL_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
         #${PANEL_ID} td.kr-value a:hover { text-decoration: underline; }
         #${PANEL_ID} td.kr-value.kr-empty { color: #aaa; }
-        #${PANEL_ID} td.kr-value.kr-highlight {
-            font-weight: bold;
-            color: ${BRAND};
-        }
-        #${PANEL_ID} td.kr-ticket {
+        #${PANEL_ID} td.kr-ident {
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px !important;   /* dokładnie jak Company / Name / Address */
@@ -245,18 +275,29 @@
     }
 
     /* ============================================================
-       2) PRZYPIĘTA TABELKA CUSTOMER DATA (SHIPPING)
+       2) PRZYPIĘTY PANEL Z DANYMI KLIENTA
        ============================================================ */
 
-    // pola: [etykieta w nowej tabelce, etykieta oryginalna na stronie]
-    const FIELDS = [
-        ['Company', 'Company (Shipping)'],
-        ['Name',    'Name (Shipping)'],
-        ['Address', 'Address (Shipping)'],
-        ['Phone',   'Phone'],
-        ['Mobile',  'Mobile'],
-        ['Email',   'Email']
-    ];
+    // pola: [etykieta w panelu, etykieta oryginalna na stronie]
+    // Phone / Mobile / Email są wspólne dla obu trybów – strona nie rozdziela ich na billing i shipping
+    const FIELDS = {
+        shipping: [
+            ['Company', 'Company (Shipping)'],
+            ['Name',    'Name (Shipping)'],
+            ['Address', 'Address (Shipping)'],
+            ['Phone',   'Phone'],
+            ['Mobile',  'Mobile'],
+            ['Email',   'Email']
+        ],
+        billing: [
+            ['Company', 'Company (Billing)'],
+            ['Name',    'Name (Billing)'],
+            ['Address', 'Address (Billing)'],
+            ['Phone',   'Phone'],
+            ['Mobile',  'Mobile'],
+            ['Email',   'Email']
+        ]
+    };
 
     // znajduje komórkę wartości dla podanej etykiety (w obrębie kontenera)
     function findValueCell(scope, labelText) {
@@ -287,15 +328,57 @@
         return null;
     }
 
+    // wyciąga numer Auftrag z sekcji Auftrag Details (bez pozycji)
+    function findAuftragNumber() {
+        const cells = document.querySelectorAll('td, th');
+        for (const cell of cells) {
+            const label = normalize(cell.textContent);
+            if (label !== 'Auftrag #' && label !== 'Auftrag#') continue;
+            const valueCell = cell.nextElementSibling;
+            if (!valueCell) continue;
+            const num = extractAuftragNumber(valueCell.textContent);
+            if (num) return num;
+        }
+        const params = new URLSearchParams(location.search);
+        for (const key of ['auction_number', 'auftrag', 'auction']) {
+            const val = params.get(key);
+            if (val && /^\d+$/.test(val)) return val;
+        }
+        return null;
+    }
+
     // ustala kontener tabeli Customer Data – kotwiczymy się na unikalnej etykiecie
     function findCustomerScope() {
         const cells = document.querySelectorAll('td, th');
         for (const cell of cells) {
-            if (normalize(cell.textContent) === 'Address (Shipping)') {
+            const label = normalize(cell.textContent);
+            if (label === 'Address (Shipping)' || label === 'Address (Billing)') {
                 return cell.closest('table') || document.body;
             }
         }
         return null;
+    }
+
+    function buildTabs(panel) {
+        const tabs = document.createElement('div');
+        tabs.className = 'kr-tabs';
+
+        [['shipping', 'Shipping'], ['billing', 'Billing']].forEach(([mode, label]) => {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'kr-tab' + (currentMode === mode ? ' kr-active' : '');
+            tab.textContent = label;
+            tab.addEventListener('click', (e) => {
+                e.stopPropagation();          // klik w zakładkę nie zwija panelu
+                if (currentMode === mode) return;
+                currentMode = mode;
+                localStorage.setItem(LS_MODE, mode);
+                buildCustomerPanel(true);     // wymuszona przebudowa
+            });
+            tabs.appendChild(tab);
+        });
+
+        return tabs;
     }
 
     function buildPanel(rows) {
@@ -304,19 +387,19 @@
 
         const head = document.createElement('div');
         head.className = 'kr-panel-head';
-        head.innerHTML = `<span>Customer Data (shipping)</span><span class="kr-panel-toggle">▾</span>`;
+        head.innerHTML = `<span>Customer Data (${currentMode})</span><span class="kr-panel-toggle">▾</span>`;
 
         const body = document.createElement('div');
         body.className = 'kr-panel-body';
 
         const table = document.createElement('table');
-        rows.forEach(({ label, cell, text, highlight, fullWidth }) => {
+        rows.forEach(({ label, cell, text, fullWidth }) => {
             const tr = document.createElement('tr');
 
-            // wiersz na całą szerokość (numer ticketu) – wyśrodkowany, bez osobnej kolumny etykiety
+            // wiersz na całą szerokość (nr ticketu / nr Auftrag) – wyśrodkowany
             if (fullWidth) {
                 const td = document.createElement('td');
-                td.className = 'kr-ticket';
+                td.className = 'kr-ident';
                 td.colSpan = 2;
                 td.textContent = label + ' ' + text;
                 tr.appendChild(td);
@@ -330,11 +413,8 @@
 
             const tdValue = document.createElement('td');
             tdValue.className = 'kr-value';
-            if (highlight) tdValue.classList.add('kr-highlight');
 
-            if (text) {
-                tdValue.textContent = text;
-            } else if (cell && normalize(cell.textContent)) {
+            if (cell && normalize(cell.textContent)) {
                 // klonujemy zawartość – dzięki temu linki (Address, Email) zostają aktywne
                 Array.from(cell.childNodes).forEach(node => {
                     tdValue.appendChild(node.cloneNode(true));
@@ -351,6 +431,7 @@
 
         body.appendChild(table);
         panel.appendChild(head);
+        panel.appendChild(buildTabs(panel));
         panel.appendChild(body);
 
         // zwijanie / rozwijanie – stan zapamiętany w localStorage.
@@ -367,44 +448,46 @@
         return panel;
     }
 
-    function buildShippingPanel() {
+    function buildCustomerPanel(force) {
         const scope = findCustomerScope();
         if (!scope) return;
 
-        const rows = FIELDS.map(([label, original]) => ({
+        const rows = FIELDS[currentMode].map(([label, original]) => ({
             label,
             cell: findValueCell(scope, original)
         }));
 
         // jeśli nie ma żadnych danych – nie pokazujemy pustego panelu
         const hasData = rows.some(r => r.cell && normalize(r.cell.textContent));
-
-        // numer ticketu jako pierwszy wiersz
-        const ticket = findTicketNumber();
-        if (ticket) {
-            rows.unshift({ label: 'Ticket', text: '#' + ticket, fullWidth: true });
-        }
         if (!hasData) return;
+
+        // identyfikatory na górze panelu
+        const auftrag = findAuftragNumber();
+        if (auftrag) rows.unshift({ label: 'Auftrag', text: auftrag, fullWidth: true });
+
+        const ticket = findTicketNumber();
+        if (ticket) rows.unshift({ label: 'Ticket', text: '#' + ticket, fullWidth: true });
 
         // sygnatura treści – panel przebudowujemy TYLKO gdy dane faktycznie się zmieniły.
         // Bez tego licznik czasu w menu bocznym generował mutacje DOM co sekundę,
         // panel był budowany od nowa i gubiło się zaznaczenie tekstu.
-        const signature = rows
+        const signature = currentMode + '::' + rows
             .map(r => r.label + '=' + (r.text || (r.cell ? normalize(r.cell.textContent) : '')))
             .join('|');
 
         const existing = document.getElementById(PANEL_ID);
-        if (existing && existing.getAttribute(SIG_ATTR) === signature) return;
-
-        // dodatkowe zabezpieczenie: nie ruszamy panelu, gdy użytkownik właśnie zaznacza w nim tekst
-        if (existing && hasSelectionInside(existing)) return;
+        if (!force && existing) {
+            if (existing.getAttribute(SIG_ATTR) === signature) return;
+            // nie ruszamy panelu, gdy użytkownik właśnie zaznacza w nim tekst
+            if (hasSelectionInside(existing)) return;
+        }
 
         const panel = buildPanel(rows);
         panel.setAttribute(SIG_ATTR, signature);
 
         if (existing) existing.remove();
         document.body.appendChild(panel);
-        console.log(LOG_PREFIX, 'Panel Customer Data (shipping) odświeżony.');
+        console.log(LOG_PREFIX, 'Panel Customer Data odświeżony –', currentMode);
     }
 
     /* ============================================================
@@ -413,7 +496,7 @@
 
     function run() {
         addAuftragCopyButtons();
-        buildShippingPanel();
+        buildCustomerPanel(false);
     }
 
     run();
