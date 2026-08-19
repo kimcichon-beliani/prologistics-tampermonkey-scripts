@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      1.8.0
+// @version      1.8.1
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -622,52 +622,49 @@
         );
     }
 
-    // zielone belki produktów, np. "1 x 37349: Coffee table, ASIERIO..."
-    // bierzemy najgłębszy pasujący element, żeby nie złapać całego kontenera sekcji
-    function findProductHeaders() {
-        const re = /^\d+\s*x\s*\d+\s*:/;
-        const found = [];
-        document.querySelectorAll('td, div, span, b, font').forEach(el => {
-            const text = normalize(el.textContent);
-            if (text.length > 400 || !re.test(text)) return;
-            const deeper = Array.from(el.children).some(child => re.test(normalize(child.textContent)));
-            if (!deeper) found.push(el);
-        });
-        return found;
+    // tytuł produktu ("1 x 37349: Coffee table, ...") – najpierw szukamy w samej tabeli,
+    // potem wśród poprzedzających elementów, bo układ strony bywa różny
+    const PRODUCT_RE = /^\d+\s*x\s*\d+\s*:/;
+
+    function cleanGroupTitle(text) {
+        return normalize(text).split(/\s*height:/i)[0].trim();
     }
 
-    // pierwsza tabela cen występująca po danym nagłówku produktu
-    function findTableAfter(headerEl) {
-        let node = headerEl;
+    function findGroupTitle(table) {
+        // wariant 1: zielona belka jest wierszem tej samej tabeli
+        for (const row of Array.from(table.rows || [])) {
+            for (const cell of Array.from(row.cells)) {
+                const text = normalize(cell.textContent);
+                if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
+            }
+        }
+        // wariant 2: belka leży wyżej / wcześniej w drzewie
+        let node = table;
         for (let depth = 0; node && depth < 6; depth++) {
-            let sibling = node.nextElementSibling;
+            let sibling = node.previousElementSibling;
             while (sibling) {
-                if (sibling.tagName === 'TABLE' && isPriceTable(sibling)) return sibling;
-                const nested = Array.from(sibling.querySelectorAll('table')).find(isPriceTable);
-                if (nested) return nested;
-                sibling = sibling.nextElementSibling;
+                const text = normalize(sibling.textContent);
+                if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
+                sibling = sibling.previousElementSibling;
+            }
+            if (node.parentElement) {
+                const parentText = normalize(node.parentElement.textContent);
+                if (PRODUCT_RE.test(parentText)) return cleanGroupTitle(parentText);
             }
             node = node.parentElement;
         }
         return null;
     }
 
-    // tytuł grupy bez wymiarów (height / width / weight...)
-    function cleanGroupTitle(text) {
-        return normalize(text).split(/\s*height:/i)[0].trim();
-    }
-
-    // zbiera dane cen – zawsze zakotwiczone na zielonej belce produktu,
-    // dzięki czemu bierzemy dokładnie tę tabelę, którą widać na stronie,
-    // a nie ukryte listy wszystkich przewoźników spod "Show all"
+    // zbiera dane cen ze WSZYSTKICH widocznych tabel cenowych.
+    // Ukryte listy spod "Show all" mają wiersze niewidoczne, więc odpadają same,
+    // a zduplikowane bloki (strona renderuje je kilka razy obok siebie) są deduplikowane.
     function findReturnPriceGroups() {
         const groups = [];
-        const usedTables = new Set();
+        const seen = new Set();
 
-        findProductHeaders().forEach(header => {
-            const table = findTableAfter(header);
-            if (!table || usedTables.has(table)) return;
-            usedTables.add(table);
+        document.querySelectorAll('table').forEach(table => {
+            if (!isPriceTable(table) || !isVisible(table)) return;
 
             const rows = Array.from(table.rows || []);
             const headerIdx = rows.findIndex(r =>
@@ -685,7 +682,7 @@
                 if (!/\d/.test(priceText)) return;                 // wiersz bez ceny
 
                 const nameText = normalize(cells[cells.length - 2].textContent);
-                if (!nameText) return;
+                if (!nameText || PRODUCT_RE.test(nameText)) return;
 
                 const idCell = cells[0];
                 const idText = normalize(idCell.textContent);
@@ -709,7 +706,14 @@
                 });
             });
 
-            if (items.length) groups.push({ title: cleanGroupTitle(header.textContent), items });
+            if (!items.length) return;
+
+            const title = findGroupTitle(table);
+            const key = (title || '') + '>' + items.map(i => i.id + i.name + i.price).join('|');
+            if (seen.has(key)) return;    // ten sam blok wyrenderowany kilka razy
+            seen.add(key);
+
+            groups.push({ title, items });
         });
 
         return groups;
@@ -718,8 +722,12 @@
     // sekcja cen ładuje się dopiero po kliknięciu "Return prices" –
     // klikamy raz automatycznie, żeby panel był dostępny od razu po wejściu na stronę
     let pricesAutoLoaded = false;
+    const AUTOLOAD_KEY = 'kr_prices_autoload_' + location.pathname + location.search;
+
     function ensurePricesLoaded() {
         if (pricesAutoLoaded) return;
+        // zabezpieczenie przed pętlą, gdyby przycisk przeładowywał stronę
+        if (sessionStorage.getItem(AUTOLOAD_KEY) === '1') { pricesAutoLoaded = true; return; }
         if (document.querySelector('table') && Array.from(document.querySelectorAll('table')).some(isPriceTable)) {
             pricesAutoLoaded = true;   // dane już są
             return;
@@ -729,6 +737,7 @@
             const label = normalize(btn.value || btn.textContent);
             if (/^return prices$/i.test(label)) {
                 pricesAutoLoaded = true;
+                sessionStorage.setItem(AUTOLOAD_KEY, '1');
                 console.log(LOG_PREFIX, 'Automatyczne ładowanie sekcji Real Return Shipping Prices.');
                 btn.click();
                 return;
