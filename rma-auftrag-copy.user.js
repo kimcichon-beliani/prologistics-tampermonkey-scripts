@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Prologistics – RMA Auftrag # Copy + Customer Panel
+// @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      1.6.0
-// @description  1) Przycisk "copy" obok numeru Auftrag (kopiuje sam numer, bez pozycji). 2) Przypięta w prawym górnym rogu tabelka z nr ticketu, nr Auftrag i danymi klienta – z przełącznikiem Shipping / Billing.
+// @version      1.7.0
+// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -17,12 +17,17 @@
     const LOG_PREFIX = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const MARK = 'data-kr-copy-btn';            // znacznik dla przycisku copy
-    const PANEL_ID = 'kr-customer-panel';
     const SIG_ATTR = 'data-kr-signature';       // sygnatura treści panelu
+
+    const STACK_ID = 'kr-panel-stack';          // wspólny kontener panelów
+    const PANEL_ID = 'kr-customer-panel';
+    const PRICES_ID = 'kr-prices-panel';
+
     const LS_COLLAPSED = 'kr_customer_panel_collapsed';
+    const LS_PRICES_COLLAPSED = 'kr_prices_panel_collapsed';
     const LS_MODE = 'kr_customer_panel_mode';   // 'shipping' | 'billing'
 
-    // aktualnie wybrany tryb
+    // aktualnie wybrany tryb danych klienta
     let currentMode = localStorage.getItem(LS_MODE) === 'billing' ? 'billing' : 'shipping';
 
     /* ============================================================
@@ -55,13 +60,22 @@
         .kr-copy-btn:hover { background: #a00000; border-color: #a00000; }
         .kr-copy-btn.kr-copied { background: #2e7d32; border-color: #2e7d32; }
 
-        /* --- przypięty panel --- */
-        #${PANEL_ID} {
+        /* --- kontener przypiętych panelów --- */
+        #${STACK_ID} {
             position: fixed;
             top: 12px;
-            right: 100px;  /* odsunięte w lewo, żeby nie nachodziło na przycisk dark mode */
+            right: 100px;   /* odsunięte w lewo, żeby nie nachodziło na przycisk dark mode */
             z-index: 99999;
             width: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: calc(100vh - 24px);
+            overflow-y: auto;
+        }
+
+        /* --- wspólny wygląd panelu --- */
+        #${STACK_ID} .kr-panel {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
             background: #fff;
@@ -69,8 +83,12 @@
             border-radius: 4px;
             box-shadow: 0 3px 10px rgba(0,0,0,.25);
             overflow: hidden;
+            flex: 0 0 auto;
         }
-        #${PANEL_ID} .kr-panel-head {
+        #${PANEL_ID} { order: 1; }
+        #${PRICES_ID} { order: 2; }
+
+        #${STACK_ID} .kr-panel-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -82,7 +100,7 @@
             cursor: pointer;
             user-select: none;
         }
-        #${PANEL_ID} .kr-panel-toggle {
+        #${STACK_ID} .kr-panel-toggle {
             display: inline-block;
             width: 12px;
             flex: 0 0 12px;
@@ -94,15 +112,17 @@
             transform-origin: 50% 50%;
             transition: transform .15s ease;
         }
-        #${PANEL_ID}.kr-collapsed .kr-panel-toggle { transform: rotate(-90deg); }
+        #${STACK_ID} .kr-panel.kr-collapsed .kr-panel-toggle { transform: rotate(-90deg); }
+        #${STACK_ID} .kr-panel.kr-collapsed .kr-panel-body,
+        #${STACK_ID} .kr-panel.kr-collapsed .kr-tabs { display: none; }
 
         /* --- zakładki Shipping / Billing --- */
-        #${PANEL_ID} .kr-tabs {
+        #${STACK_ID} .kr-tabs {
             display: flex;
             border-bottom: 1px solid #ddd;
             background: #f2f2f2;
         }
-        #${PANEL_ID} .kr-tab {
+        #${STACK_ID} .kr-tab {
             flex: 1 1 50%;
             padding: 5px 0;
             font-family: Arial, Helvetica, sans-serif;
@@ -117,52 +137,52 @@
             user-select: none;
             transition: color .15s ease, background .15s ease;
         }
-        #${PANEL_ID} .kr-tab:hover { background: #e8e8e8; color: #333; }
-        #${PANEL_ID} .kr-tab.kr-active {
+        #${STACK_ID} .kr-tab:hover { background: #e8e8e8; color: #333; }
+        #${STACK_ID} .kr-tab.kr-active {
             color: ${BRAND};
             background: #fff;
             border-bottom-color: ${BRAND};
         }
 
-        #${PANEL_ID} .kr-panel-body { padding: 6px 8px 8px; }
-        #${PANEL_ID}.kr-collapsed .kr-panel-body,
-        #${PANEL_ID}.kr-collapsed .kr-tabs { display: none; }
+        #${STACK_ID} .kr-panel-body { padding: 6px 8px 8px; }
 
-        #${PANEL_ID} table { border-collapse: collapse; width: 100%; }
-        #${PANEL_ID} td {
+        #${STACK_ID} table { border-collapse: collapse; width: 100%; }
+        #${STACK_ID} td {
             padding: 3px 2px;
             vertical-align: top;
             border-bottom: 1px solid #eee;
             word-break: break-word;
         }
-        #${PANEL_ID} tr:last-child td { border-bottom: none; }
-        #${PANEL_ID} td.kr-label {
+        #${STACK_ID} tr:last-child td { border-bottom: none; }
+        #${STACK_ID} td.kr-label {
             width: 72px;
             font-weight: bold;
             color: #333;
             white-space: nowrap;
         }
-        #${PANEL_ID} td.kr-value {
+        #${STACK_ID} td.kr-value {
             color: #000;
             user-select: text;
             cursor: text;
         }
-        #${PANEL_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
-        #${PANEL_ID} td.kr-value a:hover { text-decoration: underline; }
-        #${PANEL_ID} td.kr-value.kr-empty { color: #aaa; }
-        #${PANEL_ID} td.kr-ident .kr-ident-link {
+        #${STACK_ID} td.kr-value a { color: #0645ad; text-decoration: none; }
+        #${STACK_ID} td.kr-value a:hover { text-decoration: underline; }
+        #${STACK_ID} td.kr-value.kr-empty { color: #aaa; }
+
+        /* --- wiersz z identyfikatorem (Ticket / Auftrag) --- */
+        #${STACK_ID} td.kr-ident .kr-ident-link {
             color: ${BRAND};
             text-decoration: none;
             border-bottom: 1px dotted ${BRAND};
         }
-        #${PANEL_ID} td.kr-ident .kr-ident-link:hover { text-decoration: none; border-bottom-style: solid; }
-        #${PANEL_ID} td.kr-ident .kr-copy-btn {
+        #${STACK_ID} td.kr-ident .kr-ident-link:hover { border-bottom-style: solid; }
+        #${STACK_ID} td.kr-ident .kr-copy-btn {
             height: 14px;
             min-width: 20px;
             font-size: 9px;
             margin-left: 5px;
         }
-        #${PANEL_ID} td.kr-ident {
+        #${STACK_ID} td.kr-ident {
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px !important;   /* dokładnie jak Company / Name / Address */
@@ -175,6 +195,34 @@
             user-select: text;            /* łatwe zaznaczanie i kopiowanie numeru */
             cursor: text;
         }
+
+        /* --- panel Real Return Prices --- */
+        #${PRICES_ID} td.kr-group {
+            font-weight: bold;
+            color: #333;
+            background: #f2f2f2;
+            padding: 4px 4px;
+            line-height: 1.3;
+            user-select: text;
+        }
+        #${PRICES_ID} td.kr-price-name {
+            color: #000;
+            user-select: text;
+            cursor: text;
+        }
+        #${PRICES_ID} td.kr-price-value {
+            width: 68px;
+            text-align: right;
+            white-space: nowrap;
+            color: #000;
+            user-select: text;
+            cursor: text;
+        }
+        #${PRICES_ID} tr.kr-cheapest td {
+            background: #eef7ee;
+            font-weight: bold;
+        }
+        #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
     `;
     document.head.appendChild(style);
 
@@ -226,6 +274,50 @@
                 ta.remove();
             }
         });
+    }
+
+    // wspólny kontener na przypięte panele
+    function getStack() {
+        let stack = document.getElementById(STACK_ID);
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.id = STACK_ID;
+            document.body.appendChild(stack);
+        }
+        return stack;
+    }
+
+    // szkielet panelu: nagłówek + zwijanie
+    function createPanelShell(id, title, lsKey) {
+        const panel = document.createElement('div');
+        panel.id = id;
+        panel.className = 'kr-panel';
+
+        const head = document.createElement('div');
+        head.className = 'kr-panel-head';
+        head.innerHTML = `<span></span><span class="kr-panel-toggle">▾</span>`;
+        head.firstChild.textContent = title;
+
+        if (localStorage.getItem(lsKey) === '1') panel.classList.add('kr-collapsed');
+
+        head.addEventListener('click', () => {
+            panel.classList.toggle('kr-collapsed');
+            localStorage.setItem(lsKey, panel.classList.contains('kr-collapsed') ? '1' : '0');
+        });
+
+        panel.appendChild(head);
+        return panel;
+    }
+
+    // podmienia panel w kontenerze, zachowując kolejność (order w CSS)
+    function mountPanel(panel, signature) {
+        panel.setAttribute(SIG_ATTR, signature);
+        const existing = document.getElementById(panel.id);
+        if (existing) {
+            existing.replaceWith(panel);
+        } else {
+            getStack().appendChild(panel);
+        }
     }
 
     /* ============================================================
@@ -287,7 +379,7 @@
     }
 
     /* ============================================================
-       2) PRZYPIĘTY PANEL Z DANYMI KLIENTA
+       2) PANEL Z DANYMI KLIENTA (SHIPPING / BILLING)
        ============================================================ */
 
     // pola: [etykieta w panelu, etykieta oryginalna na stronie]
@@ -311,7 +403,6 @@
         ]
     };
 
-    // znajduje komórkę wartości dla podanej etykiety (w obrębie kontenera)
     function findValueCell(scope, labelText) {
         const cells = scope.querySelectorAll('td, th');
         for (const cell of cells) {
@@ -323,7 +414,7 @@
         return null;
     }
 
-    // wyciąga numer ticketu z nagłówka strony (fallback: parametry URL)
+    // numer ticketu z nagłówka strony (fallback: parametry URL)
     function findTicketNumber() {
         const candidates = document.querySelectorAll('h1, h2, h3, h4, b, strong, font, span, div, td');
         for (const el of candidates) {
@@ -340,7 +431,7 @@
         return null;
     }
 
-    // wyciąga numer Auftrag z sekcji Auftrag Details (bez pozycji) wraz z linkiem do orderu
+    // numer Auftrag z sekcji Auftrag Details (bez pozycji) wraz z linkiem do orderu
     function findAuftragInfo() {
         const cells = document.querySelectorAll('td, th');
         for (const cell of cells) {
@@ -361,7 +452,7 @@
         return null;
     }
 
-    // ustala kontener tabeli Customer Data – kotwiczymy się na unikalnej etykiecie
+    // kontener tabeli Customer Data – kotwiczymy się na unikalnej etykiecie
     function findCustomerScope() {
         const cells = document.querySelectorAll('td, th');
         for (const cell of cells) {
@@ -373,7 +464,7 @@
         return null;
     }
 
-    function buildTabs(panel) {
+    function buildTabs() {
         const tabs = document.createElement('div');
         tabs.className = 'kr-tabs';
 
@@ -395,91 +486,6 @@
         return tabs;
     }
 
-    function buildPanel(rows) {
-        const panel = document.createElement('div');
-        panel.id = PANEL_ID;
-
-        const head = document.createElement('div');
-        head.className = 'kr-panel-head';
-        head.innerHTML = `<span>Customer Data (${currentMode})</span><span class="kr-panel-toggle">▾</span>`;
-
-        const body = document.createElement('div');
-        body.className = 'kr-panel-body';
-
-        const table = document.createElement('table');
-        rows.forEach(({ label, cell, text, fullWidth, href, copyable }) => {
-            const tr = document.createElement('tr');
-
-            // wiersz na całą szerokość (nr ticketu / nr Auftrag) – wyśrodkowany
-            if (fullWidth) {
-                const td = document.createElement('td');
-                td.className = 'kr-ident';
-                td.colSpan = 2;
-
-                td.appendChild(document.createTextNode(label + ' '));
-
-                if (href) {
-                    // numer jako link do strony orderu – zaznaczanie tekstu nadal działa
-                    const a = document.createElement('a');
-                    a.href = href;
-                    a.textContent = text;
-                    a.className = 'kr-ident-link';
-                    a.title = 'Otwórz Auftrag';
-                    td.appendChild(a);
-                } else {
-                    td.appendChild(document.createTextNode(text));
-                }
-
-                if (copyable) {
-                    td.appendChild(buildCopyButton(() => extractAuftragNumber(text) || text));
-                }
-
-                tr.appendChild(td);
-                table.appendChild(tr);
-                return;
-            }
-
-            const tdLabel = document.createElement('td');
-            tdLabel.className = 'kr-label';
-            tdLabel.textContent = label;
-
-            const tdValue = document.createElement('td');
-            tdValue.className = 'kr-value';
-
-            if (cell && normalize(cell.textContent)) {
-                // klonujemy zawartość – dzięki temu linki (Address, Email) zostają aktywne
-                Array.from(cell.childNodes).forEach(node => {
-                    tdValue.appendChild(node.cloneNode(true));
-                });
-            } else {
-                tdValue.classList.add('kr-empty');
-                tdValue.textContent = '–';
-            }
-
-            tr.appendChild(tdLabel);
-            tr.appendChild(tdValue);
-            table.appendChild(tr);
-        });
-
-        body.appendChild(table);
-        panel.appendChild(head);
-        panel.appendChild(buildTabs(panel));
-        panel.appendChild(body);
-
-        // zwijanie / rozwijanie – stan zapamiętany w localStorage.
-        // Strzałka to zawsze ten sam znak; kierunek robi CSS-owy obrót, więc nic nie skacze.
-        if (localStorage.getItem(LS_COLLAPSED) === '1') {
-            panel.classList.add('kr-collapsed');
-        }
-        head.addEventListener('click', () => {
-            panel.classList.toggle('kr-collapsed');
-            const collapsed = panel.classList.contains('kr-collapsed');
-            localStorage.setItem(LS_COLLAPSED, collapsed ? '1' : '0');
-        });
-
-        return panel;
-    }
-
     function buildCustomerPanel(force) {
         const scope = findCustomerScope();
         if (!scope) return;
@@ -489,7 +495,6 @@
             cell: findValueCell(scope, original)
         }));
 
-        // jeśli nie ma żadnych danych – nie pokazujemy pustego panelu
         const hasData = rows.some(r => r.cell && normalize(r.cell.textContent));
         if (!hasData) return;
 
@@ -518,16 +523,189 @@
         const existing = document.getElementById(PANEL_ID);
         if (!force && existing) {
             if (existing.getAttribute(SIG_ATTR) === signature) return;
-            // nie ruszamy panelu, gdy użytkownik właśnie zaznacza w nim tekst
             if (hasSelectionInside(existing)) return;
         }
 
-        const panel = buildPanel(rows);
-        panel.setAttribute(SIG_ATTR, signature);
+        const panel = createPanelShell(PANEL_ID, `Customer Data (${currentMode})`, LS_COLLAPSED);
+        panel.appendChild(buildTabs());
 
-        if (existing) existing.remove();
-        document.body.appendChild(panel);
+        const body = document.createElement('div');
+        body.className = 'kr-panel-body';
+        const table = document.createElement('table');
+
+        rows.forEach(({ label, cell, text, fullWidth, href, copyable }) => {
+            const tr = document.createElement('tr');
+
+            // wiersz na całą szerokość (nr ticketu / nr Auftrag) – wyśrodkowany
+            if (fullWidth) {
+                const td = document.createElement('td');
+                td.className = 'kr-ident';
+                td.colSpan = 2;
+                td.appendChild(document.createTextNode(label + ' '));
+
+                if (href) {
+                    const a = document.createElement('a');
+                    a.href = href;
+                    a.textContent = text;
+                    a.className = 'kr-ident-link';
+                    a.title = 'Otwórz Auftrag';
+                    td.appendChild(a);
+                } else {
+                    td.appendChild(document.createTextNode(text));
+                }
+
+                if (copyable) {
+                    td.appendChild(buildCopyButton(() => extractAuftragNumber(text) || text));
+                }
+
+                tr.appendChild(td);
+                table.appendChild(tr);
+                return;
+            }
+
+            const tdLabel = document.createElement('td');
+            tdLabel.className = 'kr-label';
+            tdLabel.textContent = label;
+
+            const tdValue = document.createElement('td');
+            tdValue.className = 'kr-value';
+
+            if (cell && normalize(cell.textContent)) {
+                // klonujemy zawartość – dzięki temu linki (Address, Email) zostają aktywne
+                Array.from(cell.childNodes).forEach(node => tdValue.appendChild(node.cloneNode(true)));
+            } else {
+                tdValue.classList.add('kr-empty');
+                tdValue.textContent = '–';
+            }
+
+            tr.appendChild(tdLabel);
+            tr.appendChild(tdValue);
+            table.appendChild(tr);
+        });
+
+        body.appendChild(table);
+        panel.appendChild(body);
+
+        mountPanel(panel, signature);
         console.log(LOG_PREFIX, 'Panel Customer Data odświeżony –', currentMode);
+    }
+
+    /* ============================================================
+       3) PANEL REAL RETURN SHIPPING PRICES
+       ============================================================ */
+
+    // tekst nagłówka produktu (zielona belka nad tabelą cen), np. "1 x 37349: Coffee table, ASIERIO..."
+    function findGroupTitle(table) {
+        let node = table;
+        for (let depth = 0; node && depth < 5; depth++) {
+            let sibling = node.previousElementSibling;
+            while (sibling) {
+                const text = normalize(sibling.textContent);
+                if (/^\d+\s*x\s*\d+\s*:/.test(text)) return text.split(/\s{2,}|height:/)[0].trim();
+                sibling = sibling.previousElementSibling;
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    // zbiera tabele z cenami zwrotów: rozpoznajemy je po nagłówku kolumny
+    function findReturnPriceGroups() {
+        const groups = [];
+
+        document.querySelectorAll('table').forEach(table => {
+            const rows = Array.from(table.rows || []);
+            if (!rows.length) return;
+
+            // tabela cen ma nagłówek "Shipping price per 1 piece"
+            const headerIdx = rows.findIndex(r =>
+                Array.from(r.cells).some(c => /shipping price per 1 piece/i.test(normalize(c.textContent)))
+            );
+            if (headerIdx === -1) return;
+
+            const items = [];
+            rows.slice(headerIdx + 1).forEach(row => {
+                const cells = Array.from(row.cells);
+                if (cells.length < 3) return;
+
+                const priceText = normalize(cells[cells.length - 1].textContent);
+                if (!/\d/.test(priceText)) return;                 // wiersz bez ceny – pomijamy
+
+                const nameText = normalize(cells[cells.length - 2].textContent);
+                if (!nameText) return;
+
+                const value = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(',', '.'));
+                items.push({ name: nameText, price: priceText, value: isNaN(value) ? null : value });
+            });
+
+            if (items.length) groups.push({ title: findGroupTitle(table), items });
+        });
+
+        return groups;
+    }
+
+    function buildPricesPanel(force) {
+        const groups = findReturnPriceGroups();
+        if (!groups.length) {
+            const stale = document.getElementById(PRICES_ID);
+            if (stale) stale.remove();
+            return;
+        }
+
+        const signature = groups
+            .map(g => (g.title || '') + '>' + g.items.map(i => i.name + '=' + i.price).join('|'))
+            .join('||');
+
+        const existing = document.getElementById(PRICES_ID);
+        if (!force && existing) {
+            if (existing.getAttribute(SIG_ATTR) === signature) return;
+            if (hasSelectionInside(existing)) return;
+        }
+
+        const panel = createPanelShell(PRICES_ID, 'Real Return Prices', LS_PRICES_COLLAPSED);
+
+        const body = document.createElement('div');
+        body.className = 'kr-panel-body';
+        const table = document.createElement('table');
+
+        groups.forEach(group => {
+            if (group.title) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.className = 'kr-group';
+                td.colSpan = 2;
+                td.textContent = group.title;
+                tr.appendChild(td);
+                table.appendChild(tr);
+            }
+
+            // najtańsza opcja w grupie – wyróżniona na zielono
+            const prices = group.items.map(i => i.value).filter(v => v !== null);
+            const min = prices.length ? Math.min(...prices) : null;
+
+            group.items.forEach(item => {
+                const tr = document.createElement('tr');
+                if (min !== null && item.value === min) tr.className = 'kr-cheapest';
+
+                const tdName = document.createElement('td');
+                tdName.className = 'kr-price-name';
+                tdName.textContent = item.name;
+
+                const tdPrice = document.createElement('td');
+                tdPrice.className = 'kr-price-value';
+                tdPrice.textContent = item.price;
+
+                tr.appendChild(tdName);
+                tr.appendChild(tdPrice);
+                table.appendChild(tr);
+            });
+        });
+
+        body.appendChild(table);
+        panel.appendChild(body);
+
+        mountPanel(panel, signature);
+        console.log(LOG_PREFIX, 'Panel Real Return Prices odświeżony –', groups.length, 'grup(y)');
     }
 
     /* ============================================================
@@ -537,16 +715,17 @@
     function run() {
         addAuftragCopyButtons();
         buildCustomerPanel(false);
+        buildPricesPanel(false);
     }
 
     run();
 
     let timer = null;
     const observer = new MutationObserver(mutations => {
-        // ignorujemy zmiany wywołane przez sam panel
+        // ignorujemy zmiany wywołane przez same panele
         const relevant = mutations.some(m => {
             const t = m.target;
-            return !(t.closest && t.closest('#' + PANEL_ID));
+            return !(t.closest && t.closest('#' + STACK_ID));
         });
         if (!relevant) return;
 
