@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      1.7.0
+// @version      1.8.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -205,24 +205,40 @@
             line-height: 1.3;
             user-select: text;
         }
+        #${PRICES_ID} td.kr-price-id {
+            width: 34px;
+            white-space: nowrap;
+            color: #0645ad;
+            user-select: text;
+        }
+        #${PRICES_ID} td.kr-price-id a { color: #0645ad; text-decoration: none; }
+        #${PRICES_ID} td.kr-price-id a:hover { text-decoration: underline; }
         #${PRICES_ID} td.kr-price-name {
             color: #000;
             user-select: text;
             cursor: text;
         }
+        #${PRICES_ID} td.kr-price-name .kr-country {
+            color: #666;
+            margin-right: 4px;
+        }
         #${PRICES_ID} td.kr-price-value {
-            width: 68px;
-            text-align: right;
+            width: 62px;
+            text-align: center;
             white-space: nowrap;
-            color: #000;
+            font-weight: bold;
+            color: #e08a00;              /* jak pomarańczowe ceny w oryginalnej tabeli */
             user-select: text;
             cursor: text;
         }
-        #${PRICES_ID} tr.kr-cheapest td {
-            background: #eef7ee;
-            font-weight: bold;
-        }
+        #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
         #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
+        #${PRICES_ID} td.kr-note {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 6px 2px;
+        }
     `;
     document.head.appendChild(style);
 
@@ -594,30 +610,66 @@
        3) PANEL REAL RETURN SHIPPING PRICES
        ============================================================ */
 
-    // tekst nagłówka produktu (zielona belka nad tabelą cen), np. "1 x 37349: Coffee table, ASIERIO..."
-    function findGroupTitle(table) {
-        let node = table;
-        for (let depth = 0; node && depth < 5; depth++) {
-            let sibling = node.previousElementSibling;
+    // czy element jest realnie widoczny na stronie?
+    function isVisible(el) {
+        return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+    }
+
+    // czy tabela zawiera nagłówek cen zwrotów?
+    function isPriceTable(table) {
+        return Array.from(table.rows || []).some(r =>
+            Array.from(r.cells).some(c => /shipping price per 1 piece/i.test(normalize(c.textContent)))
+        );
+    }
+
+    // zielone belki produktów, np. "1 x 37349: Coffee table, ASIERIO..."
+    // bierzemy najgłębszy pasujący element, żeby nie złapać całego kontenera sekcji
+    function findProductHeaders() {
+        const re = /^\d+\s*x\s*\d+\s*:/;
+        const found = [];
+        document.querySelectorAll('td, div, span, b, font').forEach(el => {
+            const text = normalize(el.textContent);
+            if (text.length > 400 || !re.test(text)) return;
+            const deeper = Array.from(el.children).some(child => re.test(normalize(child.textContent)));
+            if (!deeper) found.push(el);
+        });
+        return found;
+    }
+
+    // pierwsza tabela cen występująca po danym nagłówku produktu
+    function findTableAfter(headerEl) {
+        let node = headerEl;
+        for (let depth = 0; node && depth < 6; depth++) {
+            let sibling = node.nextElementSibling;
             while (sibling) {
-                const text = normalize(sibling.textContent);
-                if (/^\d+\s*x\s*\d+\s*:/.test(text)) return text.split(/\s{2,}|height:/)[0].trim();
-                sibling = sibling.previousElementSibling;
+                if (sibling.tagName === 'TABLE' && isPriceTable(sibling)) return sibling;
+                const nested = Array.from(sibling.querySelectorAll('table')).find(isPriceTable);
+                if (nested) return nested;
+                sibling = sibling.nextElementSibling;
             }
             node = node.parentElement;
         }
         return null;
     }
 
-    // zbiera tabele z cenami zwrotów: rozpoznajemy je po nagłówku kolumny
+    // tytuł grupy bez wymiarów (height / width / weight...)
+    function cleanGroupTitle(text) {
+        return normalize(text).split(/\s*height:/i)[0].trim();
+    }
+
+    // zbiera dane cen – zawsze zakotwiczone na zielonej belce produktu,
+    // dzięki czemu bierzemy dokładnie tę tabelę, którą widać na stronie,
+    // a nie ukryte listy wszystkich przewoźników spod "Show all"
     function findReturnPriceGroups() {
         const groups = [];
+        const usedTables = new Set();
 
-        document.querySelectorAll('table').forEach(table => {
+        findProductHeaders().forEach(header => {
+            const table = findTableAfter(header);
+            if (!table || usedTables.has(table)) return;
+            usedTables.add(table);
+
             const rows = Array.from(table.rows || []);
-            if (!rows.length) return;
-
-            // tabela cen ma nagłówek "Shipping price per 1 piece"
             const headerIdx = rows.findIndex(r =>
                 Array.from(r.cells).some(c => /shipping price per 1 piece/i.test(normalize(c.textContent)))
             );
@@ -625,23 +677,63 @@
 
             const items = [];
             rows.slice(headerIdx + 1).forEach(row => {
+                if (!isVisible(row)) return;                       // pomijamy wiersze ukryte
                 const cells = Array.from(row.cells);
                 if (cells.length < 3) return;
 
                 const priceText = normalize(cells[cells.length - 1].textContent);
-                if (!/\d/.test(priceText)) return;                 // wiersz bez ceny – pomijamy
+                if (!/\d/.test(priceText)) return;                 // wiersz bez ceny
 
                 const nameText = normalize(cells[cells.length - 2].textContent);
                 if (!nameText) return;
 
+                const idCell = cells[0];
+                const idText = normalize(idCell.textContent);
+                const idLink = idCell.querySelector('a');
+
+                let country = '';
+                if (cells.length >= 4) {
+                    const c = normalize(cells[1].textContent);
+                    if (c.length <= 3) country = c;
+                }
+
                 const value = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(',', '.'));
-                items.push({ name: nameText, price: priceText, value: isNaN(value) ? null : value });
+
+                items.push({
+                    id: /^\d+$/.test(idText) ? idText : '',
+                    idHref: idLink ? idLink.href : null,
+                    country,
+                    name: nameText,
+                    price: priceText,
+                    value: isNaN(value) ? null : value
+                });
             });
 
-            if (items.length) groups.push({ title: findGroupTitle(table), items });
+            if (items.length) groups.push({ title: cleanGroupTitle(header.textContent), items });
         });
 
         return groups;
+    }
+
+    // sekcja cen ładuje się dopiero po kliknięciu "Return prices" –
+    // klikamy raz automatycznie, żeby panel był dostępny od razu po wejściu na stronę
+    let pricesAutoLoaded = false;
+    function ensurePricesLoaded() {
+        if (pricesAutoLoaded) return;
+        if (document.querySelector('table') && Array.from(document.querySelectorAll('table')).some(isPriceTable)) {
+            pricesAutoLoaded = true;   // dane już są
+            return;
+        }
+        const buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button');
+        for (const btn of buttons) {
+            const label = normalize(btn.value || btn.textContent);
+            if (/^return prices$/i.test(label)) {
+                pricesAutoLoaded = true;
+                console.log(LOG_PREFIX, 'Automatyczne ładowanie sekcji Real Return Shipping Prices.');
+                btn.click();
+                return;
+            }
+        }
     }
 
     function buildPricesPanel(force) {
@@ -653,7 +745,7 @@
         }
 
         const signature = groups
-            .map(g => (g.title || '') + '>' + g.items.map(i => i.name + '=' + i.price).join('|'))
+            .map(g => (g.title || '') + '>' + g.items.map(i => i.id + i.name + '=' + i.price).join('|'))
             .join('||');
 
         const existing = document.getElementById(PRICES_ID);
@@ -673,7 +765,7 @@
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
                 td.className = 'kr-group';
-                td.colSpan = 2;
+                td.colSpan = 3;
                 td.textContent = group.title;
                 tr.appendChild(td);
                 table.appendChild(tr);
@@ -687,14 +779,33 @@
                 const tr = document.createElement('tr');
                 if (min !== null && item.value === min) tr.className = 'kr-cheapest';
 
+                // ID – jak w oryginalnej tabeli, z zachowanym linkiem
+                const tdId = document.createElement('td');
+                tdId.className = 'kr-price-id';
+                if (item.id && item.idHref) {
+                    const a = document.createElement('a');
+                    a.href = item.idHref;
+                    a.textContent = item.id;
+                    tdId.appendChild(a);
+                } else {
+                    tdId.textContent = item.id;
+                }
+
                 const tdName = document.createElement('td');
                 tdName.className = 'kr-price-name';
-                tdName.textContent = item.name;
+                if (item.country) {
+                    const c = document.createElement('span');
+                    c.className = 'kr-country';
+                    c.textContent = item.country;
+                    tdName.appendChild(c);
+                }
+                tdName.appendChild(document.createTextNode(item.name));
 
                 const tdPrice = document.createElement('td');
                 tdPrice.className = 'kr-price-value';
                 tdPrice.textContent = item.price;
 
+                tr.appendChild(tdId);
                 tr.appendChild(tdName);
                 tr.appendChild(tdPrice);
                 table.appendChild(tr);
@@ -715,6 +826,7 @@
     function run() {
         addAuftragCopyButtons();
         buildCustomerPanel(false);
+        ensurePricesLoaded();
         buildPricesPanel(false);
     }
 
