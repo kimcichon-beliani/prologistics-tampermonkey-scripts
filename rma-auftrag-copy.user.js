@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.3.0
+// @version      2.3.1
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -35,49 +35,55 @@
        ============================================================ */
     const style = document.createElement('style');
     style.textContent = `
-        /* --- unowocześnione przyciski na całej stronie --- */
-        input[type="button"],
-        input[type="submit"],
-        input[type="reset"],
-        button {
+        /* --- unowocześnione przyciski na całej stronie ---
+           Style trafiają WYŁĄCZNIE na przyciski oznaczone klasą przez modernizeButtons().
+           Dzięki temu kolorowe przyciski szablonów zachowują swoje tło i pozostają czytelne. */
+        .kr-btn {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
             font-weight: bold;
+            border-radius: 4px;
+            padding: 4px 10px;
+            cursor: pointer;
+            transition: filter .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+        }
+        .kr-btn:active { transform: translateY(1px); }
+
+        /* przyciski bez własnego koloru – nowy, jednolity wygląd */
+        .kr-btn-plain {
             color: #333;
             background: linear-gradient(#fff, #f0f0f0);
             border: 1px solid #c4c4c4;
-            border-radius: 4px;
-            padding: 4px 10px;
             box-shadow: 0 1px 2px rgba(0,0,0,.08);
-            cursor: pointer;
-            transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
         }
-        input[type="button"]:hover,
-        input[type="submit"]:hover,
-        input[type="reset"]:hover,
-        button:hover {
+        .kr-btn-plain:hover {
             color: ${BRAND};
             border-color: ${BRAND};
             background: linear-gradient(#fff, #f7ecec);
             box-shadow: 0 2px 4px rgba(117,0,0,.15);
         }
-        input[type="button"]:active,
-        input[type="submit"]:active,
-        input[type="reset"]:active,
-        button:active {
+        .kr-btn-plain:active {
             background: #f0e2e2;
             box-shadow: inset 0 1px 2px rgba(0,0,0,.12);
-            transform: translateY(1px);
         }
-        input[type="button"]:disabled,
-        input[type="submit"]:disabled,
-        button:disabled {
+        .kr-btn-plain:disabled {
             color: #aaa;
             background: #f5f5f5;
             border-color: #ddd;
             box-shadow: none;
             cursor: default;
         }
+
+        /* przyciski z własnym kolorem (szablony maili) – zostawiamy ich kolory nietknięte */
+        .kr-btn-colored {
+            border: 1px solid rgba(0,0,0,.18);
+            box-shadow: 0 1px 2px rgba(0,0,0,.12);
+        }
+        .kr-btn-colored:hover {
+            filter: brightness(1.06);
+            box-shadow: 0 2px 5px rgba(0,0,0,.18);
+        }
+
         /* pola tekstowe i selecty – żeby nie odstawały od nowych przycisków */
         input[type="text"],
         input[type="search"],
@@ -490,6 +496,36 @@
         } else {
             getStack().appendChild(panel);
         }
+    }
+
+    /* ============================================================
+       0) UNOWOCZEŚNIENIE PRZYCISKÓW STRONY
+       ============================================================ */
+
+    // czy kolor tła jest "własnym" kolorem przycisku, a nie systemową szarością?
+    function isColorful(color) {
+        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(color || '');
+        if (!m) return false;
+        const [r, g, b] = [+m[1], +m[2], +m[3]];
+        const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
+        if (alpha === 0) return false;
+        return Math.max(r, g, b) - Math.min(r, g, b) > 12;   // odcień, nie szarość
+    }
+
+    function modernizeButtons() {
+        const selector = 'input[type="button"], input[type="submit"], input[type="reset"], button';
+        document.querySelectorAll(selector).forEach(btn => {
+            if (btn.classList.contains('kr-btn')) return;                 // już obsłużony
+            if (btn.classList.contains('kr-copy-btn')) return;            // nasz własny
+            if (btn.closest && btn.closest('#' + STACK_ID)) return;       // przyciski w panelach
+
+            const inlineBg = btn.style && (btn.style.background || btn.style.backgroundColor);
+            let computedBg = '';
+            try { computedBg = getComputedStyle(btn).backgroundColor; } catch (e) { /* ignore */ }
+
+            const colored = !!inlineBg || isColorful(computedBg);
+            btn.classList.add('kr-btn', colored ? 'kr-btn-colored' : 'kr-btn-plain');
+        });
     }
 
     /* ============================================================
@@ -1251,6 +1287,7 @@
        ============================================================ */
 
     function run() {
+        modernizeButtons();
         addAuftragCopyButtons();
         buildCustomerPanel(false);
         const hasPrices = buildPricesPanel(false);
