@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.4.0
+// @version      2.5.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -35,95 +35,67 @@
        ============================================================ */
     const style = document.createElement('style');
     style.textContent = `
-        /* --- unowocześnione przyciski na całej stronie ---
-           Style trafiają WYŁĄCZNIE na przyciski oznaczone klasą przez modernizeButtons().
-           Dzięki temu kolorowe przyciski szablonów zachowują swoje tło i pozostają czytelne. */
-        .kr-btn {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            font-weight: normal;
-            border-radius: 10px;         /* zaokrąglenie jak w skrypcie do Auftragów */
-            padding: 3px 9px;
-            line-height: 1.4;
+        /* --- wygląd przycisków: analogicznie do MODUŁU 3 ze skryptu
+               "Prologistics – A Better Look – Auftrag" (v2.0.0) ---
+               geometria dla wszystkich, kolor tła tylko tam, gdzie strona
+               nie ustawia własnego stylem inline */
+        input[type="button"], input[type="submit"], input[type="reset"], button {
+            font-family: inherit;
+            padding: 2px 9px;
+            border: 1px solid rgba(0,0,0,.25);
+            border-radius: 5px;
+            box-shadow: 0 1px 1px rgba(0,0,0,.07);
             cursor: pointer;
-            transition: filter .12s ease, border-color .12s ease, color .12s ease, background .12s ease;
+            vertical-align: middle;
+            transition: filter .12s ease, box-shadow .12s ease, transform .04s ease;
         }
-        .kr-btn:active { transform: translateY(1px); }
-
-        /* przyciski bez własnego koloru – płaskie, jasne, bez gradientu */
-        .kr-btn-plain {
-            color: #555;
-            background: #fff;
-            border: 1px solid #cfcfcf;
+        input[type="button"]:not([style*="background"]),
+        input[type="submit"]:not([style*="background"]),
+        input[type="reset"]:not([style*="background"]),
+        button:not([style*="background"]) {
+            background-color: #f6f6f6;
+            color: #222;
+        }
+        input[type="button"]:hover, input[type="submit"]:hover,
+        input[type="reset"]:hover, button:hover {
+            filter: brightness(.94);
+            box-shadow: 0 1px 3px rgba(0,0,0,.14);
+        }
+        input[type="button"]:active, input[type="submit"]:active,
+        input[type="reset"]:active, button:active {
+            transform: translateY(1px);
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.15);
+        }
+        input[type="button"]:focus-visible, input[type="submit"]:focus-visible,
+        input[type="reset"]:focus-visible, button:focus-visible {
+            outline: 2px solid ${BRAND};
+            outline-offset: 1px;
+        }
+        input[type="button"]:disabled, input[type="submit"]:disabled,
+        input[type="reset"]:disabled, button:disabled {
+            opacity: .5;
+            cursor: not-allowed;
             box-shadow: none;
+            filter: none;
         }
-        .kr-btn-plain:hover {
-            color: ${BRAND};
-            border-color: ${BRAND};
-            background: #fdf7f7;
-        }
-        .kr-btn-plain:active { background: #f4e9e9; }
-        .kr-btn-plain:disabled {
-            color: #aaa;
-            background: #f5f5f5;
-            border-color: #e0e0e0;
-            cursor: default;
-        }
-
-        /* przyciski z własnym kolorem (szablony maili) – zostawiamy ich kolory nietknięte */
-        .kr-btn-colored {
-            border: 1px solid rgba(0,0,0,.12);
-            box-shadow: none;
-        }
-        .kr-btn-colored:hover { filter: brightness(1.06); }
-
-        /* czarny tekst na kolorowym tle jest zbyt ostry – lekko go zmiękczamy.
-           Klasa nadawana tylko wtedy, gdy strona faktycznie używa (prawie) czerni,
-           więc przyciski z białym lub kolorowym tekstem zostają nietknięte. */
-        .kr-btn-soft { color: #555; }
-
-        /* przycisk wyboru pliku – renderowany przez przeglądarkę, wymaga własnych selektorów */
+        /* przycisk wyboru pliku – pseudoelement przeglądarki, ta sama geometria */
         input[type="file"]::file-selector-button,
         input[type="file"]::-webkit-file-upload-button {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            color: #555;
-            background: #fff;
-            border: 1px solid #cfcfcf;
-            border-radius: 10px;
-            padding: 3px 9px;
+            font-family: inherit;
+            padding: 2px 9px;
             margin-right: 6px;
+            background-color: #f6f6f6;
+            color: #222;
+            border: 1px solid rgba(0,0,0,.25);
+            border-radius: 5px;
+            box-shadow: 0 1px 1px rgba(0,0,0,.07);
             cursor: pointer;
-            transition: border-color .12s ease, color .12s ease, background .12s ease;
+            transition: filter .12s ease, box-shadow .12s ease;
         }
         input[type="file"]::file-selector-button:hover,
         input[type="file"]::-webkit-file-upload-button:hover {
-            color: ${BRAND};
-            border-color: ${BRAND};
-            background: #fdf7f7;
-        }
-
-        /* pola tekstowe i selecty – żeby nie odstawały od nowych przycisków */
-        input[type="text"],
-        input[type="search"],
-        input[type="password"],
-        select,
-        textarea {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            border: 1px solid #cfcfcf;
-            border-radius: 6px;
-            padding: 3px 6px;
-            transition: border-color .12s ease, box-shadow .12s ease;
-        }
-        input[type="text"]:focus,
-        input[type="search"]:focus,
-        input[type="password"]:focus,
-        select:focus,
-        textarea:focus {
-            outline: none;
-            border-color: ${BRAND};
-            box-shadow: 0 0 0 2px rgba(117,0,0,.12);
+            filter: brightness(.94);
+            box-shadow: 0 1px 3px rgba(0,0,0,.14);
         }
 
         /* --- przycisk copy przy Auftrag # --- */
@@ -515,43 +487,6 @@
         } else {
             getStack().appendChild(panel);
         }
-    }
-
-    /* ============================================================
-       0) UNOWOCZEŚNIENIE PRZYCISKÓW STRONY
-       ============================================================ */
-
-    // czy kolor tła jest "własnym" kolorem przycisku, a nie systemową szarością?
-    function isColorful(color) {
-        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(color || '');
-        if (!m) return false;
-        const [r, g, b] = [+m[1], +m[2], +m[3]];
-        const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
-        if (alpha === 0) return false;
-        return Math.max(r, g, b) - Math.min(r, g, b) > 12;   // odcień, nie szarość
-    }
-
-    function modernizeButtons() {
-        const selector = 'input[type="button"], input[type="submit"], input[type="reset"], button';
-        document.querySelectorAll(selector).forEach(btn => {
-            if (btn.classList.contains('kr-btn')) return;                 // już obsłużony
-            if (btn.classList.contains('kr-copy-btn')) return;            // nasz własny
-            if (btn.closest && btn.closest('#' + STACK_ID)) return;       // przyciski w panelach
-
-            const inlineBg = btn.style && (btn.style.background || btn.style.backgroundColor);
-            let computedBg = '';
-            try { computedBg = getComputedStyle(btn).backgroundColor; } catch (e) { /* ignore */ }
-
-            const colored = !!inlineBg || isColorful(computedBg);
-            btn.classList.add('kr-btn', colored ? 'kr-btn-colored' : 'kr-btn-plain');
-
-            if (colored) {
-                let computedColor = '';
-                try { computedColor = getComputedStyle(btn).color; } catch (e) { /* ignore */ }
-                const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(computedColor || '');
-                if (m && +m[1] < 70 && +m[2] < 70 && +m[3] < 70) btn.classList.add('kr-btn-soft');
-            }
-        });
     }
 
     /* ============================================================
@@ -1313,7 +1248,6 @@
        ============================================================ */
 
     function run() {
-        modernizeButtons();
         addAuftragCopyButtons();
         buildCustomerPanel(false);
         const hasPrices = buildPricesPanel(false);
