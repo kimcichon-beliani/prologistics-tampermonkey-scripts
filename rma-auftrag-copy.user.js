@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      1.9.0
+// @version      2.0.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -235,6 +235,69 @@
         }
         #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
         #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
+        /* --- poziomy przewijany zestaw bloków --- */
+        #${PRICES_ID} .kr-prices-body { padding: 0; }
+        #${PRICES_ID} .kr-scroller {
+            display: flex;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-snap-type: x mandatory;
+            scrollbar-width: thin;
+        }
+        #${PRICES_ID} .kr-scroller::-webkit-scrollbar { height: 6px; }
+        #${PRICES_ID} .kr-scroller::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+        #${PRICES_ID} .kr-slide {
+            flex: 0 0 100%;
+            min-width: 100%;
+            scroll-snap-align: start;
+            padding: 6px 8px 8px;
+            box-sizing: border-box;
+        }
+        #${PRICES_ID} .kr-slide-title {
+            font-weight: bold;
+            color: #333;
+            background: #e6efe6;      /* jak zielona belka produktu na stronie */
+            padding: 4px;
+            margin-bottom: 4px;
+            line-height: 1.3;
+            border-radius: 2px;
+            user-select: text;
+        }
+        #${PRICES_ID} .kr-nav {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 4px 0 6px;
+            border-top: 1px solid #eee;
+            background: #fafafa;
+        }
+        #${PRICES_ID} .kr-nav-btn {
+            width: 20px;
+            height: 18px;
+            font-size: 13px;
+            line-height: 1;
+            font-weight: bold;
+            color: #fff;
+            background: ${BRAND};
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            user-select: none;
+        }
+        #${PRICES_ID} .kr-nav-btn:hover { background: #a00000; }
+        #${PRICES_ID} .kr-nav-counter {
+            font-size: 10px;
+            font-weight: bold;
+            color: #666;
+            min-width: 34px;
+            text-align: center;
+            user-select: none;
+        }
+
         #${PRICES_ID} td.kr-note {
             color: #888;
             font-style: italic;
@@ -738,26 +801,21 @@
         return groups;
     }
 
-    // sekcja cen ładuje się dopiero po kliknięciu "Return prices" –
-    // klikamy raz automatycznie, żeby panel był dostępny od razu po wejściu na stronę
-    let pricesAutoLoaded = false;
-    const AUTOLOAD_KEY = 'kr_prices_autoload_' + location.pathname + location.search;
+    // Sekcja cen ładuje się dopiero po kliknięciu "Return prices".
+    // Klikamy ją automatycznie, żeby panel był dostępny od razu po wejściu na stronę.
+    // Warunkiem jest BRAK realnych danych (a nie sama obecność jakiejkolwiek tabeli) –
+    // na stronie bywają ukryte tabele cenowe, które wcześniej blokowały auto-klik.
+    let autoLoadAttempts = 0;
 
-    function ensurePricesLoaded() {
-        if (pricesAutoLoaded) return;
-        // zabezpieczenie przed pętlą, gdyby przycisk przeładowywał stronę
-        if (sessionStorage.getItem(AUTOLOAD_KEY) === '1') { pricesAutoLoaded = true; return; }
-        if (document.querySelector('table') && Array.from(document.querySelectorAll('table')).some(isPriceTable)) {
-            pricesAutoLoaded = true;   // dane już są
-            return;
-        }
-        const buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button');
+    function ensurePricesLoaded(hasGroups) {
+        if (hasGroups || autoLoadAttempts >= 3) return;
+
+        const buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button, a');
         for (const btn of buttons) {
             const label = normalize(btn.value || btn.textContent);
             if (/^return prices$/i.test(label)) {
-                pricesAutoLoaded = true;
-                sessionStorage.setItem(AUTOLOAD_KEY, '1');
-                console.log(LOG_PREFIX, 'Automatyczne ładowanie sekcji Real Return Shipping Prices.');
+                autoLoadAttempts++;
+                console.log(LOG_PREFIX, 'Automatyczne ładowanie sekcji Real Return Shipping Prices, próba', autoLoadAttempts);
                 btn.click();
                 return;
             }
@@ -769,7 +827,7 @@
         if (!groups.length) {
             const stale = document.getElementById(PRICES_ID);
             if (stale) stale.remove();
-            return;
+            return false;
         }
 
         const signature = groups
@@ -778,27 +836,30 @@
 
         const existing = document.getElementById(PRICES_ID);
         if (!force && existing) {
-            if (existing.getAttribute(SIG_ATTR) === signature) return;
-            if (hasSelectionInside(existing)) return;
+            if (existing.getAttribute(SIG_ATTR) === signature) return true;
+            if (hasSelectionInside(existing)) return true;
         }
 
         const panel = createPanelShell(PRICES_ID, 'Real Return Prices', LS_PRICES_COLLAPSED);
 
         const body = document.createElement('div');
-        body.className = 'kr-panel-body';
-        const table = document.createElement('table');
+        body.className = 'kr-panel-body kr-prices-body';
+
+        // każdy produkt / blok cen to osobny "slajd" – przewijany w bok,
+        // dzięki czemu przy kilku produktach panel nie robi się kilometrową listą
+        const scroller = document.createElement('div');
+        scroller.className = 'kr-scroller';
 
         groups.forEach((group, idx) => {
-            group.title = group.title || ('Blok ' + (idx + 1));
-            if (group.title) {
-                const tr = document.createElement('tr');
-                const td = document.createElement('td');
-                td.className = 'kr-group';
-                td.colSpan = 3;
-                td.textContent = group.title;
-                tr.appendChild(td);
-                table.appendChild(tr);
-            }
+            const slide = document.createElement('div');
+            slide.className = 'kr-slide';
+
+            const title = document.createElement('div');
+            title.className = 'kr-slide-title';
+            title.textContent = group.title || ('Blok ' + (idx + 1));
+            slide.appendChild(title);
+
+            const table = document.createElement('table');
 
             // najtańsza opcja w grupie – wyróżniona na zielono
             const prices = group.items.map(i => i.value).filter(v => v !== null);
@@ -839,13 +900,56 @@
                 tr.appendChild(tdPrice);
                 table.appendChild(tr);
             });
+
+            slide.appendChild(table);
+            scroller.appendChild(slide);
         });
 
-        body.appendChild(table);
+        body.appendChild(scroller);
+
+        // nawigacja w bok – tylko gdy jest więcej niż jeden blok
+        if (groups.length > 1) {
+            const nav = document.createElement('div');
+            nav.className = 'kr-nav';
+
+            const prev = document.createElement('button');
+            prev.type = 'button';
+            prev.className = 'kr-nav-btn';
+            prev.textContent = '‹';
+
+            const counter = document.createElement('span');
+            counter.className = 'kr-nav-counter';
+            counter.textContent = '1 / ' + groups.length;
+
+            const next = document.createElement('button');
+            next.type = 'button';
+            next.className = 'kr-nav-btn';
+            next.textContent = '›';
+
+            const slideIndex = () => Math.round(scroller.scrollLeft / scroller.clientWidth);
+            const goTo = (idx) => {
+                const target = Math.max(0, Math.min(groups.length - 1, idx));
+                scroller.scrollTo({ left: target * scroller.clientWidth, behavior: 'smooth' });
+            };
+
+            prev.addEventListener('click', (e) => { e.stopPropagation(); goTo(slideIndex() - 1); });
+            next.addEventListener('click', (e) => { e.stopPropagation(); goTo(slideIndex() + 1); });
+
+            scroller.addEventListener('scroll', () => {
+                counter.textContent = (slideIndex() + 1) + ' / ' + groups.length;
+            });
+
+            nav.appendChild(prev);
+            nav.appendChild(counter);
+            nav.appendChild(next);
+            body.appendChild(nav);
+        }
+
         panel.appendChild(body);
 
         mountPanel(panel, signature);
-        console.log(LOG_PREFIX, 'Panel Real Return Prices odświeżony –', groups.length, 'grup(y)');
+        console.log(LOG_PREFIX, 'Panel Real Return Prices odświeżony –', groups.length, 'blok(ów)');
+        return true;
     }
 
     /* ============================================================
@@ -855,8 +959,8 @@
     function run() {
         addAuftragCopyButtons();
         buildCustomerPanel(false);
-        ensurePricesLoaded();
-        buildPricesPanel(false);
+        const hasPrices = buildPricesPanel(false);
+        ensurePricesLoaded(hasPrices);
     }
 
     run();
