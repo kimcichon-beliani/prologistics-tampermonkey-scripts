@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.3.1
+// @version      2.3.2
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -79,6 +79,10 @@
             border: 1px solid rgba(0,0,0,.18);
             box-shadow: 0 1px 2px rgba(0,0,0,.12);
         }
+        /* czarny tekst na kolorowym tle jest zbyt ostry – lekko go zmiękczamy.
+           Klasa nadawana tylko wtedy, gdy strona faktycznie używa (prawie) czerni,
+           więc przyciski z białym lub kolorowym tekstem zostają nietknięte. */
+        .kr-btn-soft { color: #4a4a4a; }
         .kr-btn-colored:hover {
             filter: brightness(1.06);
             box-shadow: 0 2px 5px rgba(0,0,0,.18);
@@ -525,6 +529,13 @@
 
             const colored = !!inlineBg || isColorful(computedBg);
             btn.classList.add('kr-btn', colored ? 'kr-btn-colored' : 'kr-btn-plain');
+
+            if (colored) {
+                let computedColor = '';
+                try { computedColor = getComputedStyle(btn).color; } catch (e) { /* ignore */ }
+                const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(computedColor || '');
+                if (m && +m[1] < 70 && +m[2] < 70 && +m[3] < 70) btn.classList.add('kr-btn-soft');
+            }
         });
     }
 
