@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.2.2
+// @version      2.2.3
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -213,7 +213,6 @@
             width: 100%;
         }
         #${PRICES_ID} td.kr-price-id {
-            width: 32px;
             white-space: nowrap;
             overflow: hidden;
             color: #0645ad;
@@ -234,10 +233,8 @@
             margin-right: 4px;
         }
         #${PRICES_ID} td.kr-price-value {
-            width: 78px;
             text-align: right;
-            white-space: normal;         /* cena w dwóch walutach łamie się na dwie linie */
-            word-break: normal;
+            white-space: nowrap;         /* każda linia ceny w całości, bez zawijania */
             line-height: 1.3;
             font-weight: bold;
             color: #e08a00;              /* jak pomarańczowe ceny w oryginalnej tabeli */
@@ -249,6 +246,7 @@
             font-weight: normal;
             font-size: 9px;
             line-height: 1.25;
+            white-space: nowrap;
             opacity: .8;
         }
         #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
@@ -273,6 +271,7 @@
             scroll-snap-align: start;
             padding: 6px 8px 8px;
             box-sizing: border-box;
+            overflow-x: auto;            /* gdy tabela nie mieści się w 300 px */
         }
         #${PRICES_ID} .kr-slide-title {
             font-weight: bold;
@@ -1095,6 +1094,26 @@
             slide.appendChild(title);
 
             const table = document.createElement('table');
+
+            // Szerokość kolumny z ceną liczymy z najdłuższej linii – rynki z rozpisanym
+            // działaniem (np. HU: "23.36 EUR (=15.74 EUR + 7.62 EUR)") potrzebują więcej miejsca,
+            // inaczej linia łamie się w pionową drabinkę.
+            let mainChars = 0;
+            let altChars = 0;
+            group.items.forEach(i => {
+                const lines = i.priceLines && i.priceLines.length ? i.priceLines : [i.price];
+                mainChars = Math.max(mainChars, lines[0].length);
+                lines.slice(1).forEach(l => { altChars = Math.max(altChars, l.length); });
+            });
+            const priceWidth = Math.min(200, Math.max(64, Math.ceil(Math.max(mainChars * 6.1, altChars * 5.0)) + 6));
+
+            const colgroup = document.createElement('colgroup');
+            [30, null, priceWidth].forEach(w => {
+                const col = document.createElement('col');
+                if (w) col.style.width = w + 'px';
+                colgroup.appendChild(col);
+            });
+            table.appendChild(colgroup);
 
             // wyróżnienie: najpierw to, co strona zaznaczyła na zielono; w razie braku – najniższa cena
             const hasGreen = group.items.some(i => i.green);
