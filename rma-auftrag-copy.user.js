@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.5.1
-// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
+// @version      2.6.0
+// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -277,45 +277,51 @@
                                          i ceny w dwóch walutach rozjeżdżały tabelę */
             width: 100%;
         }
-        #${PRICES_ID} td.kr-price-id {
-            white-space: nowrap;
-            overflow: hidden;
-            color: #0645ad;
-            user-select: text;
+        #${PRICES_ID} table.kr-dims {
+            table-layout: fixed;
+            width: 100%;
         }
-        #${PRICES_ID} td.kr-price-id a { color: #0645ad; text-decoration: none; }
-        #${PRICES_ID} td.kr-price-id a:hover { text-decoration: underline; }
-        #${PRICES_ID} td.kr-price-name {
-            color: #000;
-            word-break: normal;          /* łamiemy po spacjach, nie po literach */
-            overflow-wrap: break-word;
-            hyphens: none;
-            user-select: text;
-            cursor: text;
-        }
-        #${PRICES_ID} td.kr-price-name .kr-country {
-            color: #666;
-            margin-right: 4px;
-        }
-        #${PRICES_ID} td.kr-price-value {
-            text-align: right;
-            white-space: nowrap;         /* każda linia ceny w całości, bez zawijania */
-            line-height: 1.3;
+        #${PRICES_ID} td.kr-dim-label {
+            width: 74px;
             font-weight: bold;
-            color: #e08a00;              /* jak pomarańczowe ceny w oryginalnej tabeli */
+            color: #333;
+            white-space: nowrap;
+        }
+        #${PRICES_ID} td.kr-dim-value {
+            color: #000;
+            text-align: right;
+            white-space: nowrap;
             user-select: text;
             cursor: text;
         }
-        #${PRICES_ID} td.kr-price-value .kr-price-alt {
-            display: block;
-            font-weight: normal;
-            font-size: 9px;
-            line-height: 1.25;
-            white-space: nowrap;
-            opacity: .8;
+        #${PRICES_ID} .kr-best {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 6px;
+            padding: 4px 5px;
+            background: #eef7ee;
+            border: 1px solid #cfe3cf;
+            border-radius: 3px;
+            user-select: text;
         }
-        #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
-        #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
+        #${PRICES_ID} .kr-best-name {
+            color: #333;
+            line-height: 1.3;
+        }
+        #${PRICES_ID} .kr-best-price {
+            font-weight: bold;
+            color: #2e7d32;
+            white-space: nowrap;
+        }
+        #${PRICES_ID} td.kr-note {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 6px 2px;
+        }
+
         /* --- poziomy przewijany zestaw bloków --- */
         #${PRICES_ID} .kr-prices-body { padding: 0; }
         #${PRICES_ID} .kr-scroller {
@@ -919,6 +925,24 @@
 
     // mapowanie kolumn na podstawie wiersza nagłówka – tabela zbiorcza ma dodatkową
     // kolumnę "Overall dimensions method", przez którą nazwa spedycji lądowała w złym miejscu
+    // wymiary produktu z zielonej / czerwonej belki: height, width, length, volume, weight, bandmass
+    const DIM_ORDER = ['height', 'width', 'length', 'volume', 'weight', 'bandmass'];
+
+    function parseDimensions(el) {
+        if (!el) return [];
+        const text = normalize(el.textContent);
+        const re = /(height|width|length|volume|weight|bandmass)\s*:\s*([\d.,]+\s*[a-z0-9]*)/gi;
+        const found = {};
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            const key = m[1].toLowerCase();
+            if (!found[key]) found[key] = normalize(m[2]);       // pierwsze wystąpienie
+        }
+        return DIM_ORDER
+            .filter(key => found[key])
+            .map(key => ({ label: key.charAt(0).toUpperCase() + key.slice(1), value: found[key] }));
+    }
+
     // linie tekstu z komórki – <br> traktujemy jako podział wiersza,
     // dzięki czemu zapis ceny wygląda tak jak w oryginalnej tabeli
     function cellLines(cell) {
@@ -1022,12 +1046,17 @@
             const titleEl = findGroupTitleEl(table);
             const titleStyle = readTitleStyle(titleEl);
 
+            const container = blockContainerOf(table, anchorBtn);
+            let dims = parseDimensions(titleEl);
+            if (!dims.length) dims = parseDimensions(container);
+
             groups.push({
                 title: titleEl ? cleanGroupTitle(titleEl.textContent) : null,
+                dims,
                 titleGreen: titleStyle.green,
                 titleRed: titleStyle.red,
                 items,
-                container: blockContainerOf(table, anchorBtn)
+                container
             });
         });
 
@@ -1119,6 +1148,7 @@
 
         const signature = groups
             .map(g => (g.title || '') + (g.titleGreen ? '#G' : '') + (g.titleRed ? '#R' : '') + '>' +
+                      g.dims.map(d => d.label + ':' + d.value).join(',') + '>' +
                       g.items.map(i => i.id + i.name + '=' + i.price + (i.green ? '*' : '')).join('|'))
             .join('||');
 
@@ -1151,78 +1181,65 @@
             title.textContent = group.title || ('Blok ' + (idx + 1));
             slide.appendChild(title);
 
+            // --- wymiary produktu ---
             const table = document.createElement('table');
+            table.className = 'kr-dims';
 
-            // Szerokość kolumny z ceną liczymy z najdłuższej linii – rynki z rozpisanym
-            // działaniem (np. HU: "23.36 EUR (=15.74 EUR + 7.62 EUR)") potrzebują więcej miejsca,
-            // inaczej linia łamie się w pionową drabinkę.
-            let mainChars = 0;
-            let altChars = 0;
-            group.items.forEach(i => {
-                const lines = i.priceLines && i.priceLines.length ? i.priceLines : [i.price];
-                mainChars = Math.max(mainChars, lines[0].length);
-                lines.slice(1).forEach(l => { altChars = Math.max(altChars, l.length); });
-            });
-            const priceWidth = Math.min(200, Math.max(64, Math.ceil(Math.max(mainChars * 6.1, altChars * 5.0)) + 6));
-
-            const colgroup = document.createElement('colgroup');
-            [30, null, priceWidth].forEach(w => {
-                const col = document.createElement('col');
-                if (w) col.style.width = w + 'px';
-                colgroup.appendChild(col);
-            });
-            table.appendChild(colgroup);
-
-            // wyróżnienie: najpierw to, co strona zaznaczyła na zielono; w razie braku – najniższa cena
-            const hasGreen = group.items.some(i => i.green);
-            const prices = group.items.map(i => i.value).filter(v => v !== null);
-            const min = prices.length ? Math.min(...prices) : null;
-
-            group.items.forEach(item => {
+            group.dims.forEach(dim => {
                 const tr = document.createElement('tr');
-                const highlight = hasGreen ? item.green : (min !== null && item.value === min);
-                if (highlight) tr.className = 'kr-cheapest';
 
-                const tdId = document.createElement('td');
-                tdId.className = 'kr-price-id';
-                if (item.id && item.idHref) {
-                    const a = document.createElement('a');
-                    a.href = item.idHref;
-                    a.textContent = item.id;
-                    tdId.appendChild(a);
-                } else {
-                    tdId.textContent = item.id;
-                }
+                const tdLabel = document.createElement('td');
+                tdLabel.className = 'kr-dim-label';
+                tdLabel.textContent = dim.label;
 
-                const tdName = document.createElement('td');
-                tdName.className = 'kr-price-name';
-                if (item.country) {
-                    const c = document.createElement('span');
-                    c.className = 'kr-country';
-                    c.textContent = item.country;
-                    tdName.appendChild(c);
-                }
-                tdName.appendChild(document.createTextNode(item.name));
+                const tdValue = document.createElement('td');
+                tdValue.className = 'kr-dim-value';
+                tdValue.textContent = dim.value;
 
-                const tdPrice = document.createElement('td');
-                tdPrice.className = 'kr-price-value';
-                // pierwsza linia = cena główna, kolejne (druga waluta, rozbicie) mniejszą czcionką
-                const lines = item.priceLines && item.priceLines.length ? item.priceLines : [item.price];
-                tdPrice.appendChild(document.createTextNode(lines[0]));
-                lines.slice(1).forEach(line => {
-                    const alt = document.createElement('span');
-                    alt.className = 'kr-price-alt';
-                    alt.textContent = line;
-                    tdPrice.appendChild(alt);
-                });
-
-                tr.appendChild(tdId);
-                tr.appendChild(tdName);
-                tr.appendChild(tdPrice);
+                tr.appendChild(tdLabel);
+                tr.appendChild(tdValue);
                 table.appendChild(tr);
             });
 
+            if (!group.dims.length) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.className = 'kr-note';
+                td.colSpan = 2;
+                td.textContent = 'Brak wymiarów';
+                tr.appendChild(td);
+                table.appendChild(tr);
+            }
+
             slide.appendChild(table);
+
+            // --- najtańsza opcja wysyłki, jedna linia ---
+            // bierzemy to, co strona zaznaczyła na zielono; gdy nic nie zaznaczyła – najniższą kwotę
+            const greenItem = group.items.find(i => i.green);
+            const withValue = group.items.filter(i => i.value !== null);
+            const minItem = withValue.length
+                ? withValue.reduce((a, b) => (b.value < a.value ? b : a))
+                : group.items[0];
+            const best = greenItem || minItem;
+
+            if (best) {
+                const bestRow = document.createElement('div');
+                bestRow.className = 'kr-best';
+
+                const bestName = document.createElement('span');
+                bestName.className = 'kr-best-name';
+                bestName.textContent = (best.country ? best.country + ' ' : '') + best.name;
+
+                const bestPrice = document.createElement('span');
+                bestPrice.className = 'kr-best-price';
+                const bestLines = best.priceLines && best.priceLines.length ? best.priceLines : [best.price];
+                bestPrice.textContent = bestLines[0];
+
+                bestRow.appendChild(bestName);
+                bestRow.appendChild(bestPrice);
+                slide.appendChild(bestRow);
+            }
+
             scroller.appendChild(slide);
         });
 
