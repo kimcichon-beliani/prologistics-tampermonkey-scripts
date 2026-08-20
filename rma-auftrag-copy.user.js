@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.3.2
+// @version      2.4.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -41,51 +41,66 @@
         .kr-btn {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
-            font-weight: bold;
-            border-radius: 4px;
-            padding: 4px 10px;
+            font-weight: normal;
+            border-radius: 10px;         /* zaokrąglenie jak w skrypcie do Auftragów */
+            padding: 3px 9px;
+            line-height: 1.4;
             cursor: pointer;
-            transition: filter .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+            transition: filter .12s ease, border-color .12s ease, color .12s ease, background .12s ease;
         }
         .kr-btn:active { transform: translateY(1px); }
 
-        /* przyciski bez własnego koloru – nowy, jednolity wygląd */
+        /* przyciski bez własnego koloru – płaskie, jasne, bez gradientu */
         .kr-btn-plain {
-            color: #333;
-            background: linear-gradient(#fff, #f0f0f0);
-            border: 1px solid #c4c4c4;
-            box-shadow: 0 1px 2px rgba(0,0,0,.08);
+            color: #555;
+            background: #fff;
+            border: 1px solid #cfcfcf;
+            box-shadow: none;
         }
         .kr-btn-plain:hover {
             color: ${BRAND};
             border-color: ${BRAND};
-            background: linear-gradient(#fff, #f7ecec);
-            box-shadow: 0 2px 4px rgba(117,0,0,.15);
+            background: #fdf7f7;
         }
-        .kr-btn-plain:active {
-            background: #f0e2e2;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,.12);
-        }
+        .kr-btn-plain:active { background: #f4e9e9; }
         .kr-btn-plain:disabled {
             color: #aaa;
             background: #f5f5f5;
-            border-color: #ddd;
-            box-shadow: none;
+            border-color: #e0e0e0;
             cursor: default;
         }
 
         /* przyciski z własnym kolorem (szablony maili) – zostawiamy ich kolory nietknięte */
         .kr-btn-colored {
-            border: 1px solid rgba(0,0,0,.18);
-            box-shadow: 0 1px 2px rgba(0,0,0,.12);
+            border: 1px solid rgba(0,0,0,.12);
+            box-shadow: none;
         }
+        .kr-btn-colored:hover { filter: brightness(1.06); }
+
         /* czarny tekst na kolorowym tle jest zbyt ostry – lekko go zmiękczamy.
            Klasa nadawana tylko wtedy, gdy strona faktycznie używa (prawie) czerni,
            więc przyciski z białym lub kolorowym tekstem zostają nietknięte. */
-        .kr-btn-soft { color: #4a4a4a; }
-        .kr-btn-colored:hover {
-            filter: brightness(1.06);
-            box-shadow: 0 2px 5px rgba(0,0,0,.18);
+        .kr-btn-soft { color: #555; }
+
+        /* przycisk wyboru pliku – renderowany przez przeglądarkę, wymaga własnych selektorów */
+        input[type="file"]::file-selector-button,
+        input[type="file"]::-webkit-file-upload-button {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            color: #555;
+            background: #fff;
+            border: 1px solid #cfcfcf;
+            border-radius: 10px;
+            padding: 3px 9px;
+            margin-right: 6px;
+            cursor: pointer;
+            transition: border-color .12s ease, color .12s ease, background .12s ease;
+        }
+        input[type="file"]::file-selector-button:hover,
+        input[type="file"]::-webkit-file-upload-button:hover {
+            color: ${BRAND};
+            border-color: ${BRAND};
+            background: #fdf7f7;
         }
 
         /* pola tekstowe i selecty – żeby nie odstawały od nowych przycisków */
@@ -96,9 +111,9 @@
         textarea {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
-            border: 1px solid #c4c4c4;
-            border-radius: 4px;
-            padding: 3px 5px;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            padding: 3px 6px;
             transition: border-color .12s ease, box-shadow .12s ease;
         }
         input[type="text"]:focus,
