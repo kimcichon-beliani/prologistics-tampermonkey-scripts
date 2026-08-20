@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.6.0
+// @version      2.6.1
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -282,18 +282,23 @@
             width: 100%;
         }
         #${PRICES_ID} td.kr-dim-label {
-            width: 74px;
+            width: 56px;
             font-weight: bold;
-            color: #333;
+            font-size: 10px;
+            color: #444;
             white-space: nowrap;
+            padding-right: 2px;
         }
         #${PRICES_ID} td.kr-dim-value {
             color: #000;
+            font-size: 10px;
             text-align: right;
             white-space: nowrap;
+            padding-right: 6px;
             user-select: text;
             cursor: text;
         }
+        #${PRICES_ID} td.kr-dim-value:last-child { padding-right: 2px; }
         #${PRICES_ID} .kr-best {
             display: flex;
             align-items: baseline;
@@ -940,7 +945,7 @@
         }
         return DIM_ORDER
             .filter(key => found[key])
-            .map(key => ({ label: key.charAt(0).toUpperCase() + key.slice(1), value: found[key] }));
+            .map(key => ({ key, label: key.charAt(0).toUpperCase() + key.slice(1), value: found[key] }));
     }
 
     // linie tekstu z komórki – <br> traktujemy jako podział wiersza,
@@ -1181,23 +1186,34 @@
             title.textContent = group.title || ('Blok ' + (idx + 1));
             slide.appendChild(title);
 
-            // --- wymiary produktu ---
+            // --- wymiary produktu, dwie kolumny jak w belce na stronie ---
             const table = document.createElement('table');
             table.className = 'kr-dims';
 
-            group.dims.forEach(dim => {
+            const dimMap = {};
+            group.dims.forEach(d => { dimMap[d.key] = d; });
+
+            // układ z oryginału: height|bandmass, width|volume, length|weight
+            const DIM_PAIRS = [['height', 'bandmass'], ['width', 'volume'], ['length', 'weight']];
+
+            DIM_PAIRS.forEach(pair => {
+                const left = dimMap[pair[0]];
+                const right = dimMap[pair[1]];
+                if (!left && !right) return;
+
                 const tr = document.createElement('tr');
+                [left, right].forEach(dim => {
+                    const tdLabel = document.createElement('td');
+                    tdLabel.className = 'kr-dim-label';
+                    tdLabel.textContent = dim ? dim.label : '';
 
-                const tdLabel = document.createElement('td');
-                tdLabel.className = 'kr-dim-label';
-                tdLabel.textContent = dim.label;
+                    const tdValue = document.createElement('td');
+                    tdValue.className = 'kr-dim-value';
+                    tdValue.textContent = dim ? dim.value : '';
 
-                const tdValue = document.createElement('td');
-                tdValue.className = 'kr-dim-value';
-                tdValue.textContent = dim.value;
-
-                tr.appendChild(tdLabel);
-                tr.appendChild(tdValue);
+                    tr.appendChild(tdLabel);
+                    tr.appendChild(tdValue);
+                });
                 table.appendChild(tr);
             });
 
@@ -1205,7 +1221,7 @@
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
                 td.className = 'kr-note';
-                td.colSpan = 2;
+                td.colSpan = 4;
                 td.textContent = 'Brak wymiarów';
                 tr.appendChild(td);
                 table.appendChild(tr);
