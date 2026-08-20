@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.1.0
+// @version      2.2.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -282,6 +282,22 @@
             line-height: 1.3;
             border-radius: 2px;
             user-select: text;
+        }
+        #${PRICES_ID} .kr-eye-btn {
+            margin-left: auto;
+            margin-right: 8px;
+            padding: 0;
+            font-size: 11px;
+            line-height: 1;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            opacity: .9;
+        }
+        #${PRICES_ID} .kr-eye-btn:hover { opacity: 1; }
+        #${PRICES_ID} .kr-slide-title-summary {
+            background: #fdeceb;      /* tabela zbiorcza – jak czerwony nagłówek na stronie */
+            color: ${BRAND};
         }
         #${PRICES_ID} .kr-nav {
             display: flex;
@@ -692,31 +708,34 @@
        3) PANEL REAL RETURN SHIPPING PRICES
        ============================================================ */
 
-    // czy element jest realnie widoczny na stronie?
+    const HIDDEN_CLASS = 'kr-hidden-by-script';
+    const LS_HIDE_SECTION = 'kr_prices_hide_section';
+    // domyślnie chowamy sekcję na stronie – dane i tak są w panelu
+    let hideSection = localStorage.getItem(LS_HIDE_SECTION) !== '0';
+
+    // element ukryty przez nas traktujemy jako "widoczny" przy parsowaniu,
+    // inaczej po schowaniu sekcji panel straciłby źródło danych
     function isVisible(el) {
-        return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+        if (!el) return false;
+        if (el.closest && el.closest('.' + HIDDEN_CLASS)) return true;
+        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
     }
 
-    // czy tabela wygląda na tabelę cen? (nagłówek kolumny "Shipping price ...")
     function isPriceTable(table) {
         return Array.from(table.rows || []).some(r =>
             Array.from(r.cells).some(c => /^shipping price/i.test(normalize(c.textContent)))
         );
     }
 
-    // granice sekcji "Real Return Shipping Prices" – bierzemy tylko tabele leżące
-    // między tym nagłówkiem a nagłówkiem następnej sekcji ("Liquidators' Prices")
     function findSectionBounds() {
         let startEl = null;
         let endEl = null;
-
         document.querySelectorAll('td, th, div, span, b, font').forEach(el => {
             const text = normalize(el.textContent);
             if (text.length > 60) return;
             if (!startEl && /^real return shipping prices$/i.test(text)) startEl = el;
             if (!endEl && /^liquidators.{0,3} prices$/i.test(text)) endEl = el;
         });
-
         return { startEl, endEl };
     }
 
@@ -729,17 +748,18 @@
     }
 
     const PRODUCT_RE = /^\d+\s*x\s*\d+\s*:/;
+    const SUMMARY_RE = /^shipping prices for/i;      // np. "Shipping prices for sending all cartons together"
 
     function cleanGroupTitle(text) {
-        return normalize(text).split(/\s*height:/i)[0].trim();
+        return normalize(text).split(/\s*height:/i)[0].split(/\s*Heights added/i)[0].trim();
     }
 
-    // tytuł bloku: zielona belka produktu, a gdy jej nie ma – nagłówek nad tabelą
+    // tytuł bloku: zielona belka produktu albo czerwony nagłówek tabeli zbiorczej
     function findGroupTitle(table) {
         for (const row of Array.from(table.rows || [])) {
             for (const cell of Array.from(row.cells)) {
                 const text = normalize(cell.textContent);
-                if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
+                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return cleanGroupTitle(text);
             }
         }
         let node = table;
@@ -747,7 +767,7 @@
             let sibling = node.previousElementSibling;
             while (sibling) {
                 const text = normalize(sibling.textContent);
-                if (PRODUCT_RE.test(text)) return cleanGroupTitle(text);
+                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return cleanGroupTitle(text);
                 sibling = sibling.previousElementSibling;
             }
             node = node.parentElement;
@@ -755,19 +775,64 @@
         return null;
     }
 
-    // zbiera WSZYSTKIE widoczne tabele cenowe z sekcji Real Return Shipping Prices.
-    // Ukryte listy spod "Show all" mają wiersze bez wymiarów, więc odpadają same.
+    // czy kolor jest zielonkawy? (strona zaznacza tak najkorzystniejszą opcję)
+    function isGreenish(color) {
+        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(color || '');
+        if (!m) return false;
+        const [r, g, b] = [+m[1], +m[2], +m[3]];
+        if (r === 0 && g === 0 && b === 0) return false;
+        return g > r + 25 && g > b + 25;
+    }
+
+    function isGreenCell(cell) {
+        if (!cell) return false;
+        try {
+            const cs = getComputedStyle(cell);
+            return isGreenish(cs.color) || isGreenish(cs.borderTopColor) || isGreenish(cs.backgroundColor);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // mapowanie kolumn na podstawie wiersza nagłówka – tabela zbiorcza ma dodatkową
+    // kolumnę "Overall dimensions method", przez którą nazwa spedycji lądowała w złym miejscu
+    function mapColumns(headerRow) {
+        const cells = Array.from(headerRow.cells).map(c => normalize(c.textContent));
+        let nameIdx = -1;
+        let priceIdx = -1;
+
+        cells.forEach((text, idx) => {
+            if (nameIdx === -1 && /^shipping price$/i.test(text)) nameIdx = idx;
+            if (/per 1 piece/i.test(text) || /^real shipping price$/i.test(text)) priceIdx = idx;
+        });
+
+        if (priceIdx === -1) priceIdx = cells.length - 1;
+        if (nameIdx === -1) nameIdx = Math.max(0, priceIdx - 1);
+        return { nameIdx, priceIdx };
+    }
+
+    // kontener bloku – najwyższy element, którego rodzic zawiera przyciski sekcji
+    function blockContainerOf(table, anchorBtn) {
+        let node = table;
+        while (node.parentElement && anchorBtn && !node.parentElement.contains(anchorBtn)) {
+            node = node.parentElement;
+        }
+        return node;
+    }
+
     function findReturnPriceGroups() {
         const groups = [];
         const { startEl, endEl } = findSectionBounds();
         if (!startEl) return groups;
+
+        const anchorBtn = findReturnPricesButton();
 
         const tables = Array.from(document.querySelectorAll('table')).filter(t =>
             isPriceTable(t) && isVisible(t) && isBetween(t, startEl, endEl)
         );
 
         tables.forEach(table => {
-            // bierzemy tylko tabele najgłębsze – jeśli w środku jest inna tabela cen, pomijamy opakowanie
+            // tylko tabele najgłębsze – opakowania pomijamy
             if (Array.from(table.querySelectorAll('table')).some(inner => tables.includes(inner))) return;
 
             const rows = Array.from(table.rows || []);
@@ -776,16 +841,22 @@
             );
             if (headerIdx === -1) return;
 
+            const { nameIdx, priceIdx } = mapColumns(rows[headerIdx]);
+
             const items = [];
             rows.slice(headerIdx + 1).forEach(row => {
-                if (!isVisible(row)) return;                       // pomijamy wiersze ukryte
+                if (!isVisible(row)) return;
                 const cells = Array.from(row.cells);
                 if (cells.length < 3) return;
 
-                const priceText = normalize(cells[cells.length - 1].textContent);
-                if (!/\d/.test(priceText)) return;                 // wiersz bez ceny
+                const priceCell = cells[priceIdx] || cells[cells.length - 1];
+                const nameCell = cells[nameIdx] || cells[cells.length - 2];
+                if (!priceCell || !nameCell) return;
 
-                const nameText = normalize(cells[cells.length - 2].textContent);
+                const priceText = normalize(priceCell.textContent);
+                if (!/\d/.test(priceText)) return;
+
+                const nameText = normalize(nameCell.textContent);
                 if (!nameText || PRODUCT_RE.test(nameText)) return;
 
                 const idCell = cells[0];
@@ -806,20 +877,42 @@
                     country,
                     name: nameText,
                     price: priceText,
-                    value: isNaN(value) ? null : value
+                    value: isNaN(value) ? null : value,
+                    green: isGreenCell(priceCell) || isGreenCell(row)
                 });
             });
 
             if (!items.length) return;
 
-            groups.push({ title: findGroupTitle(table), items });
+            groups.push({
+                title: findGroupTitle(table),
+                items,
+                container: blockContainerOf(table, anchorBtn)
+            });
         });
 
         return groups;
     }
 
-    // Sekcja cen ładuje się dopiero po kliknięciu "Return prices".
-    // Klikamy ją automatycznie, żeby panel był dostępny od razu po wejściu na stronę.
+    /* ---------- chowanie oryginalnej sekcji na stronie ---------- */
+
+    function applySectionVisibility(groups) {
+        groups.forEach(g => {
+            if (!g.container) return;
+            if (hideSection) {
+                if (!g.container.classList.contains(HIDDEN_CLASS)) {
+                    g.container.classList.add(HIDDEN_CLASS);
+                    g.container.style.display = 'none';
+                }
+            } else if (g.container.classList.contains(HIDDEN_CLASS)) {
+                g.container.classList.remove(HIDDEN_CLASS);
+                g.container.style.display = '';
+            }
+        });
+    }
+
+    /* ---------- automatyczne doładowanie sekcji ---------- */
+
     let autoLoadAttempts = 0;
     let autoLoadTimer = null;
     const AUTOLOAD_MAX = 12;
@@ -834,8 +927,7 @@
     }
 
     function clickReturnPrices(btn) {
-        // niektóre handlery na stronie reagują dopiero na pełną sekwencję zdarzeń myszy,
-        // dlatego oprócz .click() wysyłamy też mousedown / mouseup
+        // niektóre handlery reagują dopiero na pełną sekwencję zdarzeń myszy
         try {
             ['mousedown', 'mouseup', 'click'].forEach(type => {
                 btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
@@ -849,11 +941,10 @@
         }
     }
 
-    // odpytujemy cyklicznie – przycisk bywa dorenderowany później niż document-idle
     function startAutoLoad() {
         if (autoLoadTimer) return;
         autoLoadTimer = setInterval(() => {
-            if (findReturnPriceGroups().length) {          // dane są – kończymy
+            if (findReturnPriceGroups().length) {
                 clearInterval(autoLoadTimer);
                 autoLoadTimer = null;
                 buildPricesPanel(false);
@@ -866,7 +957,7 @@
                 return;
             }
             const btn = findReturnPricesButton();
-            if (!btn) return;                              // przycisku jeszcze nie ma
+            if (!btn) return;
             autoLoadAttempts++;
             console.log(LOG_PREFIX, 'Ładowanie Real Return Shipping Prices – próba', autoLoadAttempts);
             clickReturnPrices(btn);
@@ -881,6 +972,8 @@
         startAutoLoad();
     }
 
+    /* ---------- budowa panelu ---------- */
+
     function buildPricesPanel(force) {
         const groups = findReturnPriceGroups();
         if (!groups.length) {
@@ -889,8 +982,10 @@
             return false;
         }
 
-        const signature = groups
-            .map(g => (g.title || '') + '>' + g.items.map(i => i.id + i.name + '=' + i.price).join('|'))
+        applySectionVisibility(groups);
+
+        const signature = (hideSection ? 'H' : 'S') + '::' + groups
+            .map(g => (g.title || '') + '>' + g.items.map(i => i.id + i.name + '=' + i.price + (i.green ? '*' : '')).join('|'))
             .join('||');
 
         const existing = document.getElementById(PRICES_ID);
@@ -901,11 +996,24 @@
 
         const panel = createPanelShell(PRICES_ID, 'Real Return Prices', LS_PRICES_COLLAPSED);
 
+        // przełącznik widoczności oryginalnej sekcji na stronie
+        const eyeBtn = document.createElement('button');
+        eyeBtn.type = 'button';
+        eyeBtn.className = 'kr-eye-btn';
+        eyeBtn.textContent = hideSection ? '👁' : '🙈';
+        eyeBtn.title = hideSection ? 'Pokaż sekcję na stronie' : 'Ukryj sekcję na stronie';
+        eyeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            hideSection = !hideSection;
+            localStorage.setItem(LS_HIDE_SECTION, hideSection ? '1' : '0');
+            buildPricesPanel(true);
+        });
+        panel.querySelector('.kr-panel-head').insertBefore(eyeBtn, panel.querySelector('.kr-panel-toggle'));
+
         const body = document.createElement('div');
         body.className = 'kr-panel-body kr-prices-body';
 
-        // każdy produkt / blok cen to osobny "slajd" – przewijany w bok,
-        // dzięki czemu przy kilku produktach panel nie robi się kilometrową listą
+        // każdy blok cen to osobny "slajd" – przewijany w bok
         const scroller = document.createElement('div');
         scroller.className = 'kr-scroller';
 
@@ -915,20 +1023,22 @@
 
             const title = document.createElement('div');
             title.className = 'kr-slide-title';
+            if (group.title && SUMMARY_RE.test(group.title)) title.classList.add('kr-slide-title-summary');
             title.textContent = group.title || ('Blok ' + (idx + 1));
             slide.appendChild(title);
 
             const table = document.createElement('table');
 
-            // najtańsza opcja w grupie – wyróżniona na zielono
+            // wyróżnienie: najpierw to, co strona zaznaczyła na zielono; w razie braku – najniższa cena
+            const hasGreen = group.items.some(i => i.green);
             const prices = group.items.map(i => i.value).filter(v => v !== null);
             const min = prices.length ? Math.min(...prices) : null;
 
             group.items.forEach(item => {
                 const tr = document.createElement('tr');
-                if (min !== null && item.value === min) tr.className = 'kr-cheapest';
+                const highlight = hasGreen ? item.green : (min !== null && item.value === min);
+                if (highlight) tr.className = 'kr-cheapest';
 
-                // ID – jak w oryginalnej tabeli, z zachowanym linkiem
                 const tdId = document.createElement('td');
                 tdId.className = 'kr-price-id';
                 if (item.id && item.idHref) {
@@ -952,7 +1062,7 @@
 
                 const tdPrice = document.createElement('td');
                 tdPrice.className = 'kr-price-value';
-                // "3.78 EUR 16.31 PLN" -> główna cena + druga waluta w osobnej linii
+                // "3.78 EUR 16.31 PLN" -> główna cena + reszta w osobnej linii
                 const parts = item.price.match(/[\d.,]+\s*[A-Z]{3}/g);
                 if (parts && parts.length > 1) {
                     tdPrice.appendChild(document.createTextNode(parts[0]));
