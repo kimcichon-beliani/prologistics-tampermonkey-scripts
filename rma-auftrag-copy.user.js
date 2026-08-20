@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.2.1
+// @version      2.2.2
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -247,8 +247,9 @@
         #${PRICES_ID} td.kr-price-value .kr-price-alt {
             display: block;
             font-weight: normal;
-            font-size: 10px;
-            opacity: .85;
+            font-size: 9px;
+            line-height: 1.25;
+            opacity: .8;
         }
         #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
         #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
@@ -734,10 +735,17 @@
         return true;
     }
 
+    // UWAGA: dopasowujemy dokładne nazwy kolumn. Wcześniejsze /^shipping price/ łapało też
+    // czerwony tytuł "Shipping prices for sending all cartons together", przez co za wiersz
+    // nagłówka brany był tytuł i cała tabela zbiorcza czytała się błędnie.
+    const HEADER_RE = /^(shipping price|shipping price per 1 piece|real shipping price)$/i;
+
+    function isHeaderRow(row) {
+        return Array.from(row.cells).some(c => HEADER_RE.test(normalize(c.textContent)));
+    }
+
     function isPriceTable(table) {
-        return Array.from(table.rows || []).some(r =>
-            Array.from(r.cells).some(c => /^shipping price/i.test(normalize(c.textContent)))
-        );
+        return Array.from(table.rows || []).some(isHeaderRow);
     }
 
     function findSectionBounds() {
@@ -833,6 +841,17 @@
 
     // mapowanie kolumn na podstawie wiersza nagłówka – tabela zbiorcza ma dodatkową
     // kolumnę "Overall dimensions method", przez którą nazwa spedycji lądowała w złym miejscu
+    // linie tekstu z komórki – <br> traktujemy jako podział wiersza,
+    // dzięki czemu zapis ceny wygląda tak jak w oryginalnej tabeli
+    function cellLines(cell) {
+        const clone = cell.cloneNode(true);
+        clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        return clone.textContent
+            .split('\n')
+            .map(line => normalize(line))
+            .filter(Boolean);
+    }
+
     function mapColumns(headerRow) {
         const cells = Array.from(headerRow.cells).map(c => normalize(c.textContent));
         let nameIdx = -1;
@@ -840,7 +859,7 @@
 
         cells.forEach((text, idx) => {
             if (nameIdx === -1 && /^shipping price$/i.test(text)) nameIdx = idx;
-            if (/per 1 piece/i.test(text) || /^real shipping price$/i.test(text)) priceIdx = idx;
+            if (/^shipping price per 1 piece$/i.test(text) || /^real shipping price$/i.test(text)) priceIdx = idx;
         });
 
         if (priceIdx === -1) priceIdx = cells.length - 1;
@@ -873,9 +892,7 @@
             if (Array.from(table.querySelectorAll('table')).some(inner => tables.includes(inner))) return;
 
             const rows = Array.from(table.rows || []);
-            const headerIdx = rows.findIndex(r =>
-                Array.from(r.cells).some(c => /^shipping price/i.test(normalize(c.textContent)))
-            );
+            const headerIdx = rows.findIndex(isHeaderRow);
             if (headerIdx === -1) return;
 
             const { nameIdx, priceIdx } = mapColumns(rows[headerIdx]);
@@ -890,7 +907,8 @@
                 const nameCell = cells[nameIdx] || cells[cells.length - 2];
                 if (!priceCell || !nameCell) return;
 
-                const priceText = normalize(priceCell.textContent);
+                const priceLines = cellLines(priceCell);
+                const priceText = priceLines.join(' ');
                 if (!/\d/.test(priceText)) return;
 
                 const nameText = normalize(nameCell.textContent);
@@ -906,7 +924,8 @@
                     if (c.length <= 3) country = c;
                 }
 
-                const value = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(',', '.'));
+                const firstNumber = (priceLines[0] || priceText).match(/[\d]+[.,]?[\d]*/);
+                const value = firstNumber ? parseFloat(firstNumber[0].replace(',', '.')) : NaN;
 
                 items.push({
                     id: /^\d+$/.test(idText) ? idText : '',
@@ -914,6 +933,7 @@
                     country,
                     name: nameText,
                     price: priceText,
+                    priceLines,
                     value: isNaN(value) ? null : value,
                     green: isGreenCell(priceCell) || isGreenCell(row)
                 });
@@ -1109,17 +1129,15 @@
 
                 const tdPrice = document.createElement('td');
                 tdPrice.className = 'kr-price-value';
-                // "3.78 EUR 16.31 PLN" -> główna cena + reszta w osobnej linii
-                const parts = item.price.match(/[\d.,]+\s*[A-Z]{3}/g);
-                if (parts && parts.length > 1) {
-                    tdPrice.appendChild(document.createTextNode(parts[0]));
+                // pierwsza linia = cena główna, kolejne (druga waluta, rozbicie) mniejszą czcionką
+                const lines = item.priceLines && item.priceLines.length ? item.priceLines : [item.price];
+                tdPrice.appendChild(document.createTextNode(lines[0]));
+                lines.slice(1).forEach(line => {
                     const alt = document.createElement('span');
                     alt.className = 'kr-price-alt';
-                    alt.textContent = parts.slice(1).join(' ');
+                    alt.textContent = line;
                     tdPrice.appendChild(alt);
-                } else {
-                    tdPrice.textContent = item.price;
-                }
+                });
 
                 tr.appendChild(tdId);
                 tr.appendChild(tdName);
