@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.2.3
-// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
+// @version      2.3.0
+// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -35,6 +35,72 @@
        ============================================================ */
     const style = document.createElement('style');
     style.textContent = `
+        /* --- unowocześnione przyciski na całej stronie --- */
+        input[type="button"],
+        input[type="submit"],
+        input[type="reset"],
+        button {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            color: #333;
+            background: linear-gradient(#fff, #f0f0f0);
+            border: 1px solid #c4c4c4;
+            border-radius: 4px;
+            padding: 4px 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.08);
+            cursor: pointer;
+            transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+        }
+        input[type="button"]:hover,
+        input[type="submit"]:hover,
+        input[type="reset"]:hover,
+        button:hover {
+            color: ${BRAND};
+            border-color: ${BRAND};
+            background: linear-gradient(#fff, #f7ecec);
+            box-shadow: 0 2px 4px rgba(117,0,0,.15);
+        }
+        input[type="button"]:active,
+        input[type="submit"]:active,
+        input[type="reset"]:active,
+        button:active {
+            background: #f0e2e2;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.12);
+            transform: translateY(1px);
+        }
+        input[type="button"]:disabled,
+        input[type="submit"]:disabled,
+        button:disabled {
+            color: #aaa;
+            background: #f5f5f5;
+            border-color: #ddd;
+            box-shadow: none;
+            cursor: default;
+        }
+        /* pola tekstowe i selecty – żeby nie odstawały od nowych przycisków */
+        input[type="text"],
+        input[type="search"],
+        input[type="password"],
+        select,
+        textarea {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            border: 1px solid #c4c4c4;
+            border-radius: 4px;
+            padding: 3px 5px;
+            transition: border-color .12s ease, box-shadow .12s ease;
+        }
+        input[type="text"]:focus,
+        input[type="search"]:focus,
+        input[type="password"]:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: ${BRAND};
+            box-shadow: 0 0 0 2px rgba(117,0,0,.12);
+        }
+
         /* --- przycisk copy przy Auftrag # --- */
         .kr-copy-btn {
             display: inline-flex;
@@ -287,18 +353,6 @@
             background: #c3e6c3;      /* jak zielona belka produktu = korzystniejszy wariant */
             color: #14571b;
         }
-        #${PRICES_ID} .kr-eye-btn {
-            margin-left: auto;
-            margin-right: 8px;
-            padding: 0;
-            font-size: 11px;
-            line-height: 1;
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            opacity: .9;
-        }
-        #${PRICES_ID} .kr-eye-btn:hover { opacity: 1; }
         #${PRICES_ID} .kr-slide-title-summary {
             background: #fdeceb;      /* tabela zbiorcza – jak czerwony nagłówek na stronie */
             color: ${BRAND};
@@ -713,9 +767,7 @@
        ============================================================ */
 
     const HIDDEN_CLASS = 'kr-hidden-by-script';
-    const LS_HIDE_SECTION = 'kr_prices_hide_section';
-    // domyślnie chowamy sekcję na stronie – dane i tak są w panelu
-    let hideSection = localStorage.getItem(LS_HIDE_SECTION) !== '0';
+    // sekcję na stronie chowamy zawsze – wszystkie dane są w panelu
 
     // Widoczność liczymy ze stylów poszczególnych przodków, a NIE z wymiarów elementu.
     // Gdy schowamy blok, wszystko w środku ma zerowe wymiary – wcześniej wpadały wtedy
@@ -959,16 +1011,9 @@
 
     function applySectionVisibility(groups) {
         groups.forEach(g => {
-            if (!g.container) return;
-            if (hideSection) {
-                if (!g.container.classList.contains(HIDDEN_CLASS)) {
-                    g.container.classList.add(HIDDEN_CLASS);
-                    g.container.style.display = 'none';
-                }
-            } else if (g.container.classList.contains(HIDDEN_CLASS)) {
-                g.container.classList.remove(HIDDEN_CLASS);
-                g.container.style.display = '';
-            }
+            if (!g.container || g.container.classList.contains(HIDDEN_CLASS)) return;
+            g.container.classList.add(HIDDEN_CLASS);
+            g.container.style.display = 'none';
         });
     }
 
@@ -1045,7 +1090,7 @@
 
         applySectionVisibility(groups);
 
-        const signature = (hideSection ? 'H' : 'S') + '::' + groups
+        const signature = groups
             .map(g => (g.title || '') + (g.titleGreen ? '#G' : '') + (g.titleRed ? '#R' : '') + '>' +
                       g.items.map(i => i.id + i.name + '=' + i.price + (i.green ? '*' : '')).join('|'))
             .join('||');
@@ -1057,20 +1102,6 @@
         }
 
         const panel = createPanelShell(PRICES_ID, 'Real Return Prices', LS_PRICES_COLLAPSED);
-
-        // przełącznik widoczności oryginalnej sekcji na stronie
-        const eyeBtn = document.createElement('button');
-        eyeBtn.type = 'button';
-        eyeBtn.className = 'kr-eye-btn';
-        eyeBtn.textContent = hideSection ? '👁' : '🙈';
-        eyeBtn.title = hideSection ? 'Pokaż sekcję na stronie' : 'Ukryj sekcję na stronie';
-        eyeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            hideSection = !hideSection;
-            localStorage.setItem(LS_HIDE_SECTION, hideSection ? '1' : '0');
-            buildPricesPanel(true);
-        });
-        panel.querySelector('.kr-panel-head').insertBefore(eyeBtn, panel.querySelector('.kr-panel-toggle'));
 
         const body = document.createElement('div');
         body.className = 'kr-panel-body kr-prices-body';
