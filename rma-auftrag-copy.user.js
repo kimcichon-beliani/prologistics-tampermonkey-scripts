@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.2.0
+// @version      2.2.1
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -276,12 +276,16 @@
         #${PRICES_ID} .kr-slide-title {
             font-weight: bold;
             color: #333;
-            background: #e6efe6;      /* jak zielona belka produktu na stronie */
+            background: #f0f0f0;
             padding: 4px;
             margin-bottom: 4px;
             line-height: 1.3;
             border-radius: 2px;
             user-select: text;
+        }
+        #${PRICES_ID} .kr-slide-title-green {
+            background: #c3e6c3;      /* jak zielona belka produktu = korzystniejszy wariant */
+            color: #14571b;
         }
         #${PRICES_ID} .kr-eye-btn {
             margin-left: auto;
@@ -713,12 +717,21 @@
     // domyślnie chowamy sekcję na stronie – dane i tak są w panelu
     let hideSection = localStorage.getItem(LS_HIDE_SECTION) !== '0';
 
-    // element ukryty przez nas traktujemy jako "widoczny" przy parsowaniu,
-    // inaczej po schowaniu sekcji panel straciłby źródło danych
+    // Widoczność liczymy ze stylów poszczególnych przodków, a NIE z wymiarów elementu.
+    // Gdy schowamy blok, wszystko w środku ma zerowe wymiary – wcześniej wpadały wtedy
+    // do panelu także ukryte wiersze spod "Show all". Kontenery ukryte przez skrypt
+    // (klasa HIDDEN_CLASS) pomijamy, resztę sprawdzamy normalnie.
     function isVisible(el) {
         if (!el) return false;
-        if (el.closest && el.closest('.' + HIDDEN_CLASS)) return true;
-        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        let node = el;
+        while (node && node !== document.body && node.nodeType === 1) {
+            if (!node.classList.contains(HIDDEN_CLASS)) {
+                const cs = getComputedStyle(node);
+                if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+            }
+            node = node.parentElement;
+        }
+        return true;
     }
 
     function isPriceTable(table) {
@@ -754,12 +767,13 @@
         return normalize(text).split(/\s*height:/i)[0].split(/\s*Heights added/i)[0].trim();
     }
 
-    // tytuł bloku: zielona belka produktu albo czerwony nagłówek tabeli zbiorczej
-    function findGroupTitle(table) {
+    // tytuł bloku: zielona belka produktu albo czerwony nagłówek tabeli zbiorczej.
+    // Zwracamy ELEMENT, bo jego kolor tła mówi, który wariant wysyłki jest korzystniejszy.
+    function findGroupTitleEl(table) {
         for (const row of Array.from(table.rows || [])) {
             for (const cell of Array.from(row.cells)) {
                 const text = normalize(cell.textContent);
-                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return cleanGroupTitle(text);
+                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return cell;
             }
         }
         let node = table;
@@ -767,12 +781,35 @@
             let sibling = node.previousElementSibling;
             while (sibling) {
                 const text = normalize(sibling.textContent);
-                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return cleanGroupTitle(text);
+                if (PRODUCT_RE.test(text) || SUMMARY_RE.test(text)) return sibling;
                 sibling = sibling.previousElementSibling;
             }
             node = node.parentElement;
         }
         return null;
+    }
+
+    function isReddish(color) {
+        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(color || '');
+        if (!m) return false;
+        const [r, g, b] = [+m[1], +m[2], +m[3]];
+        return r > g + 40 && r > b + 40;
+    }
+
+    // czy belka produktu jest zaznaczona na zielono (= korzystniejszy wariant wysyłki)?
+    function readTitleStyle(el) {
+        if (!el) return { green: false, red: false };
+        try {
+            const cs = getComputedStyle(el);
+            // belka bywa kolorowana na sobie albo na rodzicu (komórka w wierszu tabeli)
+            const parentCs = el.parentElement ? getComputedStyle(el.parentElement) : null;
+            const green = isGreenish(cs.backgroundColor) ||
+                          (parentCs && isGreenish(parentCs.backgroundColor));
+            const red = isReddish(cs.color) || isReddish(cs.borderTopColor);
+            return { green: !!green, red: !!red };
+        } catch (e) {
+            return { green: false, red: false };
+        }
     }
 
     // czy kolor jest zielonkawy? (strona zaznacza tak najkorzystniejszą opcję)
@@ -884,8 +921,13 @@
 
             if (!items.length) return;
 
+            const titleEl = findGroupTitleEl(table);
+            const titleStyle = readTitleStyle(titleEl);
+
             groups.push({
-                title: findGroupTitle(table),
+                title: titleEl ? cleanGroupTitle(titleEl.textContent) : null,
+                titleGreen: titleStyle.green,
+                titleRed: titleStyle.red,
                 items,
                 container: blockContainerOf(table, anchorBtn)
             });
@@ -985,7 +1027,8 @@
         applySectionVisibility(groups);
 
         const signature = (hideSection ? 'H' : 'S') + '::' + groups
-            .map(g => (g.title || '') + '>' + g.items.map(i => i.id + i.name + '=' + i.price + (i.green ? '*' : '')).join('|'))
+            .map(g => (g.title || '') + (g.titleGreen ? '#G' : '') + (g.titleRed ? '#R' : '') + '>' +
+                      g.items.map(i => i.id + i.name + '=' + i.price + (i.green ? '*' : '')).join('|'))
             .join('||');
 
         const existing = document.getElementById(PRICES_ID);
@@ -1023,7 +1066,11 @@
 
             const title = document.createElement('div');
             title.className = 'kr-slide-title';
-            if (group.title && SUMMARY_RE.test(group.title)) title.classList.add('kr-slide-title-summary');
+            if (group.titleGreen) {
+                title.classList.add('kr-slide-title-green');       // korzystniejszy wariant wysyłki
+            } else if (group.titleRed || (group.title && SUMMARY_RE.test(group.title))) {
+                title.classList.add('kr-slide-title-summary');
+            }
             title.textContent = group.title || ('Blok ' + (idx + 1));
             slide.appendChild(title);
 
