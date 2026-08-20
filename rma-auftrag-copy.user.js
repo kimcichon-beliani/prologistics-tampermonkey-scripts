@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.6.1
+// @version      2.6.2
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -528,6 +528,22 @@
 
             INLINE_LAYOUT_PROPS.forEach(prop => btn.style.removeProperty(prop));
         });
+    }
+
+    // "Reply to Customer" ląduje w nowej linii – ginął na końcu długiego rzędu przycisków
+    function moveReplyButtonToNewLine() {
+        const selector = 'input[type="button"], input[type="submit"], button, a';
+        for (const btn of document.querySelectorAll(selector)) {
+            if (normalize(btn.value || btn.textContent) !== 'Reply to Customer') continue;
+            if (btn.hasAttribute('data-kr-newline')) return;
+
+            const br = document.createElement('br');
+            br.setAttribute('data-kr-br', '1');
+            btn.parentNode.insertBefore(br, btn);
+            btn.setAttribute('data-kr-newline', '1');
+            console.log(LOG_PREFIX, 'Przycisk "Reply to Customer" przeniesiony do nowej linii.');
+            return;
+        }
     }
 
     /* ============================================================
@@ -1312,6 +1328,7 @@
 
     function run() {
         normalizeButtonStyles();
+        moveReplyButtonToNewLine();
         addAuftragCopyButtons();
         buildCustomerPanel(false);
         const hasPrices = buildPricesPanel(false);
