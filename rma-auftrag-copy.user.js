@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.5.0
+// @version      2.5.1
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -41,6 +41,8 @@
                nie ustawia własnego stylem inline */
         input[type="button"], input[type="submit"], input[type="reset"], button {
             font-family: inherit;
+            font-size: inherit;
+            line-height: normal;
             padding: 2px 9px;
             border: 1px solid rgba(0,0,0,.25);
             border-radius: 5px;
@@ -487,6 +489,34 @@
         } else {
             getStack().appendChild(panel);
         }
+    }
+
+    /* ============================================================
+       0) UJEDNOLICENIE PRZYCISKÓW
+       ============================================================ */
+
+    // Część przycisków (szablony maili) ma geometrię wpisaną w atrybut style,
+    // a styl inline wygrywa z arkuszem – dlatego odstawały rozmiarem od reszty.
+    // Usuwamy z nich tylko właściwości układu; kolor tła i tekstu zostaje nietknięty.
+    const INLINE_LAYOUT_PROPS = [
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'border', 'border-width', 'border-style', 'border-radius',
+        'font-size', 'font-family', 'font-weight', 'line-height',
+        'height', 'min-height', 'box-shadow'
+    ];
+
+    function normalizeButtonStyles() {
+        const selector = 'input[type="button"], input[type="submit"], input[type="reset"], button';
+        document.querySelectorAll(selector).forEach(btn => {
+            if (btn.hasAttribute('data-kr-btn-normalized')) return;
+            if (btn.classList.contains('kr-copy-btn')) return;              // nasz własny
+            if (btn.closest && btn.closest('#' + STACK_ID)) return;         // przyciski w panelach
+
+            btn.setAttribute('data-kr-btn-normalized', '1');
+            if (!btn.hasAttribute('style')) return;
+
+            INLINE_LAYOUT_PROPS.forEach(prop => btn.style.removeProperty(prop));
+        });
     }
 
     /* ============================================================
@@ -1248,6 +1278,7 @@
        ============================================================ */
 
     function run() {
+        normalizeButtonStyles();
         addAuftragCopyButtons();
         buildCustomerPanel(false);
         const hasPrices = buildPricesPanel(false);
