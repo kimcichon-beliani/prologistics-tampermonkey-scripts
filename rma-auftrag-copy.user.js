@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.0.0
+// @version      2.1.0
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z Real Return Shipping Prices.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -207,9 +207,15 @@
             user-select: text;
         }
         #${PRICES_ID} tr:first-child td.kr-group { border-top: none; }
+        #${PRICES_ID} table {
+            table-layout: fixed;      /* stałe szerokości kolumn – bez tego długie nazwy
+                                         i ceny w dwóch walutach rozjeżdżały tabelę */
+            width: 100%;
+        }
         #${PRICES_ID} td.kr-price-id {
-            width: 34px;
+            width: 32px;
             white-space: nowrap;
+            overflow: hidden;
             color: #0645ad;
             user-select: text;
         }
@@ -217,6 +223,9 @@
         #${PRICES_ID} td.kr-price-id a:hover { text-decoration: underline; }
         #${PRICES_ID} td.kr-price-name {
             color: #000;
+            word-break: normal;          /* łamiemy po spacjach, nie po literach */
+            overflow-wrap: break-word;
+            hyphens: none;
             user-select: text;
             cursor: text;
         }
@@ -225,13 +234,21 @@
             margin-right: 4px;
         }
         #${PRICES_ID} td.kr-price-value {
-            width: 62px;
-            text-align: center;
-            white-space: nowrap;
+            width: 78px;
+            text-align: right;
+            white-space: normal;         /* cena w dwóch walutach łamie się na dwie linie */
+            word-break: normal;
+            line-height: 1.3;
             font-weight: bold;
             color: #e08a00;              /* jak pomarańczowe ceny w oryginalnej tabeli */
             user-select: text;
             cursor: text;
+        }
+        #${PRICES_ID} td.kr-price-value .kr-price-alt {
+            display: block;
+            font-weight: normal;
+            font-size: 10px;
+            opacity: .85;
         }
         #${PRICES_ID} tr.kr-cheapest td { background: #eef7ee; }
         #${PRICES_ID} tr.kr-cheapest td.kr-price-value { color: #2e7d32; }
@@ -803,23 +820,65 @@
 
     // Sekcja cen ładuje się dopiero po kliknięciu "Return prices".
     // Klikamy ją automatycznie, żeby panel był dostępny od razu po wejściu na stronę.
-    // Warunkiem jest BRAK realnych danych (a nie sama obecność jakiejkolwiek tabeli) –
-    // na stronie bywają ukryte tabele cenowe, które wcześniej blokowały auto-klik.
     let autoLoadAttempts = 0;
+    let autoLoadTimer = null;
+    const AUTOLOAD_MAX = 12;
 
-    function ensurePricesLoaded(hasGroups) {
-        if (hasGroups || autoLoadAttempts >= 3) return;
-
-        const buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button, a');
-        for (const btn of buttons) {
+    function findReturnPricesButton() {
+        const candidates = document.querySelectorAll('input[type="button"], input[type="submit"], button, a');
+        for (const btn of candidates) {
             const label = normalize(btn.value || btn.textContent);
-            if (/^return prices$/i.test(label)) {
-                autoLoadAttempts++;
-                console.log(LOG_PREFIX, 'Automatyczne ładowanie sekcji Real Return Shipping Prices, próba', autoLoadAttempts);
-                btn.click();
+            if (/^return prices$/i.test(label)) return btn;
+        }
+        return null;
+    }
+
+    function clickReturnPrices(btn) {
+        // niektóre handlery na stronie reagują dopiero na pełną sekwencję zdarzeń myszy,
+        // dlatego oprócz .click() wysyłamy też mousedown / mouseup
+        try {
+            ['mousedown', 'mouseup', 'click'].forEach(type => {
+                btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+            });
+        } catch (e) {
+            console.warn(LOG_PREFIX, 'Zdarzenia myszy nieudane:', e);
+        }
+        if (typeof btn.click === 'function') btn.click();
+        if (typeof btn.onclick === 'function') {
+            try { btn.onclick.call(btn); } catch (e) { /* handler mógł już zadziałać */ }
+        }
+    }
+
+    // odpytujemy cyklicznie – przycisk bywa dorenderowany później niż document-idle
+    function startAutoLoad() {
+        if (autoLoadTimer) return;
+        autoLoadTimer = setInterval(() => {
+            if (findReturnPriceGroups().length) {          // dane są – kończymy
+                clearInterval(autoLoadTimer);
+                autoLoadTimer = null;
+                buildPricesPanel(false);
                 return;
             }
+            if (autoLoadAttempts >= AUTOLOAD_MAX) {
+                clearInterval(autoLoadTimer);
+                autoLoadTimer = null;
+                console.log(LOG_PREFIX, 'Nie udało się automatycznie załadować cen zwrotów.');
+                return;
+            }
+            const btn = findReturnPricesButton();
+            if (!btn) return;                              // przycisku jeszcze nie ma
+            autoLoadAttempts++;
+            console.log(LOG_PREFIX, 'Ładowanie Real Return Shipping Prices – próba', autoLoadAttempts);
+            clickReturnPrices(btn);
+        }, 900);
+    }
+
+    function ensurePricesLoaded(hasGroups) {
+        if (hasGroups) {
+            if (autoLoadTimer) { clearInterval(autoLoadTimer); autoLoadTimer = null; }
+            return;
         }
+        startAutoLoad();
     }
 
     function buildPricesPanel(force) {
@@ -893,7 +952,17 @@
 
                 const tdPrice = document.createElement('td');
                 tdPrice.className = 'kr-price-value';
-                tdPrice.textContent = item.price;
+                // "3.78 EUR 16.31 PLN" -> główna cena + druga waluta w osobnej linii
+                const parts = item.price.match(/[\d.,]+\s*[A-Z]{3}/g);
+                if (parts && parts.length > 1) {
+                    tdPrice.appendChild(document.createTextNode(parts[0]));
+                    const alt = document.createElement('span');
+                    alt.className = 'kr-price-alt';
+                    alt.textContent = parts.slice(1).join(' ');
+                    tdPrice.appendChild(alt);
+                } else {
+                    tdPrice.textContent = item.price;
+                }
 
                 tr.appendChild(tdId);
                 tr.appendChild(tdName);
