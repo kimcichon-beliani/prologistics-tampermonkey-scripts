@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Express Label Generator — Prologistics (Fixed)
 // @namespace    https://www.prologistics.info/
-// @version      1.4
-// @description  Klik "Label for client" -> label pobiera sie od razu jako "Label Ticket <nr>.pdf" (bez nowej karty). Dodatkowo: e-mail w Customer Data przestaje byc linkiem.
+// @version      1.5
+// @description  Klik "Label for client" -> label pobiera sie od razu jako "Ticket #<nr> label.pdf" (bez nowej karty). Dodatkowo: e-mail w Customer Data przestaje byc linkiem.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @match        https://prologistics.info/rma.php*
@@ -23,7 +23,7 @@
 
     const AUTO_DOWNLOAD      = true;   // false = stare zachowanie (nowa karta)
     const ALSO_OPEN_PREVIEW  = false;  // dodatkowo otworzyc podglad w karcie
-    const FILE_NAME_PATTERN  = 'Label Ticket {nr}.pdf';
+    const FILE_NAME_PATTERN  = 'Ticket #{nr} label.pdf';
     const DEBUG              = true;   // logi w konsoli
 
     // Parametry barcode.php uzywane, gdy nie da sie ich odczytac ze strony
