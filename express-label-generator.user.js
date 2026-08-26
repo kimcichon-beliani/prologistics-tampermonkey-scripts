@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Express Label Generator — Prologistics (Fixed)
 // @namespace    https://www.prologistics.info/
-// @version      1.2
-// @description  Bypasses the manual click in "Choose warehouse" modal, auto-submits form and opens full label in a new tab. Dodatkowo: e-mail w Customer Data przestaje być linkiem (łatwiejsze kopiowanie).
+// @version      1.3
+// @description  Bypasses the manual click in "Choose warehouse" modal, auto-submits form and DOWNLOADS the label as "Label Ticket <nr>.pdf". Dodatkowo: e-mail w Customer Data przestaje być linkiem (łatwiejsze kopiowanie).
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @run-at       document-idle
@@ -16,8 +16,174 @@
     console.log('[TM Express Label Generator by kimrioter] Start');
 
     /* =========================================================
-       CZĘŚĆ 1 — Express Label (bez zmian)
+       USTAWIENIA
        ========================================================= */
+
+    // true  -> label pobiera się od razu na dysk pod własną nazwą
+    // false -> stare zachowanie (otwarcie labela w nowej karcie)
+    const AUTO_DOWNLOAD = true;
+
+    // Dodatkowo otworzyć label w nowej karcie (podgląd) oprócz pobrania?
+    const ALSO_OPEN_PREVIEW = false;
+
+    // Wzór nazwy pliku. {nr} = numer ticketu
+    const FILE_NAME_PATTERN = 'Label Ticket {nr}.pdf';
+
+    /* =========================================================
+       CZĘŚĆ 1 — Express Label + auto-download
+       ========================================================= */
+
+    let busy = false; // blokada przed podwójnym wywołaniem
+
+    // --- Numer ticketu -------------------------------------------------
+    function getTicketNumber() {
+        // 1) Nagłówek strony: "Ticket #670805"
+        const h = document.body.innerText.match(/Ticket\s*#\s*(\d+)/i);
+        if (h) return h[1];
+
+        // 2) Zapas: parametr w URL (?id=..., ?ticket=...)
+        const u = location.search.match(/[?&](?:id|ticket|ticket_id|rma_id)=(\d+)/i);
+        if (u) return u[1];
+
+        return 'unknown';
+    }
+
+    function buildFileName() {
+        return FILE_NAME_PATTERN
+            .replace('{nr}', getTicketNumber())
+            .replace(/[\\/:*?"<>|]/g, '-'); // znaki niedozwolone w nazwach plików
+    }
+
+    // --- Mały toast w kolorze Beliani ----------------------------------
+    function toast(msg, isError) {
+        let box = document.getElementById('tm-label-toast');
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'tm-label-toast';
+            box.style.cssText = `
+                position: fixed; right: 16px; bottom: 16px; z-index: 999999;
+                background: #750000; color: #fff; padding: 10px 16px;
+                font: 13px/1.4 Arial, sans-serif; border-radius: 4px;
+                box-shadow: 0 2px 8px rgba(0,0,0,.35); max-width: 320px;
+            `;
+            document.body.appendChild(box);
+        }
+        box.style.background = isError ? '#8a1f1f' : '#750000';
+        box.textContent = msg;
+        box.style.display = 'block';
+        clearTimeout(box._t);
+        box._t = setTimeout(() => { box.style.display = 'none'; }, 3500);
+    }
+
+    // --- Zapis blobu na dysk -------------------------------------------
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+        if (ALSO_OPEN_PREVIEW) {
+            const previewUrl = URL.createObjectURL(blob);
+            window.open(previewUrl, '_blank');
+            setTimeout(() => URL.revokeObjectURL(previewUrl), 60000);
+        }
+    }
+
+    // --- Wysyłka formularza przez fetch (zamiast submit do _blank) ------
+    async function fetchFormResponse(form, submitBtn) {
+        const action = form.getAttribute('action') || location.href;
+        const url = new URL(action, location.href);
+        const method = (form.getAttribute('method') || 'GET').toUpperCase();
+
+        const fd = new FormData(form);
+        // Przycisk submit też musi trafić do requestu (serwer po nim rozpoznaje akcję)
+        if (submitBtn && submitBtn.name) fd.set(submitBtn.name, submitBtn.value || '');
+
+        if (method === 'GET') {
+            for (const [k, v] of fd.entries()) url.searchParams.set(k, v);
+            return fetch(url.toString(), { credentials: 'include' });
+        }
+
+        const isMultipart = (form.enctype || '').includes('multipart');
+        return fetch(url.toString(), {
+            method: 'POST',
+            credentials: 'include',
+            body: isMultipart ? fd : new URLSearchParams(fd)
+        });
+    }
+
+    // --- Wyciągnięcie PDF-a z odpowiedzi HTML (gdyby serwer zwrócił stronę)
+    function findPdfUrlInHtml(html, baseUrl) {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const candidates = [
+            ...doc.querySelectorAll('iframe[src], embed[src], object[data], a[href]')
+        ];
+        for (const el of candidates) {
+            const src = el.getAttribute('src') || el.getAttribute('data') || el.getAttribute('href');
+            if (src && /\.pdf(\?|$)/i.test(src)) return new URL(src, baseUrl).toString();
+        }
+        // Zapas: surowy link do PDF w treści (np. w JS)
+        const raw = html.match(/["'`]([^"'`\s]+\.pdf(?:\?[^"'`\s]*)?)["'`]/i);
+        return raw ? new URL(raw[1], baseUrl).toString() : null;
+    }
+
+    // --- Zapas: gotowy label już podlinkowany w tabeli "Return tracking numbers"
+    function findExistingLabelLink() {
+        const links = [...document.querySelectorAll('a[href*=".pdf"]')];
+        const label = links.find(a => /label/i.test(a.textContent) || /label/i.test(a.href));
+        return label ? label.href : null;
+    }
+
+    // --- Główna obsługa: pobierz label zamiast otwierać kartę -----------
+    async function downloadLabel(form, submitBtn) {
+        const filename = buildFileName();
+        toast('Generuję label…');
+
+        try {
+            const res = await fetchFormResponse(form, submitBtn);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+
+            // 1) Serwer zwrócił PDF bezpośrednio
+            if (ct.includes('pdf')) {
+                downloadBlob(await res.blob(), filename);
+                toast('Pobrano: ' + filename);
+                return true;
+            }
+
+            // 2) Serwer zwrócił HTML — szukamy w nim linku do PDF
+            if (ct.includes('html') || ct === '') {
+                const html = await res.text();
+                const pdfUrl = findPdfUrlInHtml(html, res.url || location.href)
+                    || findExistingLabelLink();
+
+                if (pdfUrl) {
+                    const pdfRes = await fetch(pdfUrl, { credentials: 'include' });
+                    if (!pdfRes.ok) throw new Error('PDF HTTP ' + pdfRes.status);
+                    downloadBlob(await pdfRes.blob(), filename);
+                    toast('Pobrano: ' + filename);
+                    return true;
+                }
+                throw new Error('Nie znalazłem PDF-a w odpowiedzi');
+            }
+
+            // 3) Inny typ pliku — i tak zapisujemy
+            downloadBlob(await res.blob(), filename);
+            toast('Pobrano: ' + filename);
+            return true;
+
+        } catch (err) {
+            console.warn('[TM Express Label Generator by kimrioter] Auto-download nieudany:', err);
+            toast('Auto-pobieranie nieudane — otwieram label w nowej karcie', true);
+            return false;
+        }
+    }
 
     function hideWarehouseModal() {
         const modalContainers = document.querySelectorAll('.ui-dialog, .blockUI, .ui-widget-overlay, [class*="dialog"]');
@@ -30,27 +196,40 @@
         });
     }
 
-    function autoSubmitWarehouseForm() {
+    // Stare zachowanie — klasyczny submit do nowej karty
+    function submitToNewTab(form, targetBtn) {
+        if (form) form.target = '_blank';
+        targetBtn.click();
+    }
+
+    function autoSubmitWarehouseForm(attempt = 0) {
         // Szukamy przycisku "Show label" w otwartym okienku modalnym
         const showLabelButtons = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button'));
         const targetBtn = showLabelButtons.find(btn => btn.value === 'Show label' || btn.textContent.trim() === 'Show label');
 
-        if (targetBtn) {
-            // Upewniamy się, że formularz wyśle się do nowej karty (_blank)
-            const form = targetBtn.closest('form');
-            if (form) {
-                form.target = '_blank';
-            }
-
-            // Klikamy przycisk "Show label"
-            targetBtn.click();
-
-            // Ukrywamy okienko z ekranu
-            setTimeout(hideWarehouseModal, 100);
-        } else {
-            // Jeśli przycisk jeszcze się nie załadował w DOM, powtarzamy próbę za moment
-            setTimeout(autoSubmitWarehouseForm, 50);
+        if (!targetBtn) {
+            // Jeśli przycisk jeszcze się nie załadował w DOM, powtarzamy próbę (max ~3 s)
+            if (attempt < 60) setTimeout(() => autoSubmitWarehouseForm(attempt + 1), 50);
+            else busy = false;
+            return;
         }
+
+        const form = targetBtn.closest('form');
+
+        if (!AUTO_DOWNLOAD || !form) {
+            submitToNewTab(form, targetBtn);
+            setTimeout(hideWarehouseModal, 100);
+            busy = false;
+            return;
+        }
+
+        // Pobieramy label sami, pod własną nazwą
+        downloadLabel(form, targetBtn).then(ok => {
+            if (!ok) submitToNewTab(form, targetBtn); // fallback: stare zachowanie
+            busy = false;
+        });
+
+        setTimeout(hideWarehouseModal, 100);
     }
 
     document.addEventListener('click', (e) => {
@@ -58,10 +237,10 @@
 
         // Po kliknięciu "Label for client"
         if (target && (target.value === 'Label for client' || target.textContent.trim() === 'Label for client')) {
-            // Dajemy ułamek sekundy na wygenerowanie się okienka modalnego, po czym automatycznie klikamy "Show label"
-            setTimeout(() => {
-                autoSubmitWarehouseForm();
-            }, 100);
+            if (busy) return;
+            busy = true;
+            // Dajemy ułamek sekundy na wygenerowanie się okienka modalnego
+            setTimeout(() => autoSubmitWarehouseForm(), 100);
         }
     }, true);
 
