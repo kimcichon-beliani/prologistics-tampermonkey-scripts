@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.8.0
+// @version      1.8.1
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,7 +20,7 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.8.0';
+    const VERSION = '1.8.1';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
@@ -185,10 +185,22 @@
 
     // Tylko te kolumny dopasowują się do treści – reszta zostaje jak była.
     const AUTO_COLS = ['Email', 'Teams'];
+    const MAX_COL_PX = 320;   // górny limit, żeby jeden długi adres nie rozjechał tabeli
 
-    // Tabela ma sztywny layout: szerokość kolumny bierze się z wiersza nagłówka,
-    // a min-width na komórkach jest ignorowany i treść wylewa się poza obramowanie.
-    // Dlatego mierzymy najszerszą zawartość kolumny i ustawiamy wynik na nagłówku.
+    // scrollWidth na komórce z overflow:visible zwraca szerokość widoczną, nie realną
+    // szerokość tekstu. Range mierzy faktyczny obrys treści, także gdy wystaje.
+    function contentWidth(cell) {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        const w = range.getBoundingClientRect().width;
+        range.detach && range.detach();
+
+        const cs = getComputedStyle(cell);
+        const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+                    parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+        return Math.ceil(w + pad) + 6;
+    }
+
     function applyWidths() {
         const t = currentTable;
         if (!t || !t.isConnected) return;
@@ -204,22 +216,28 @@
         )];
         if (!rows.length) return;
 
+        const cols = ownCells(t, 'col');
+
         targetIdx.forEach((idx) => {
             const cells = rows
                 .map((row) => row.querySelectorAll(':scope > th, :scope > td')[idx])
                 .filter((c) => c && c.style.getPropertyValue('display') !== 'none');
             if (!cells.length) return;
 
+            const col = cols[idx];
+
             if (!autoWidth) {
                 cells.forEach((c) => {
                     c.style.removeProperty('white-space');
                     c.style.removeProperty('width');
                     c.style.removeProperty('min-width');
+                    c.style.removeProperty('overflow');
+                    c.style.removeProperty('text-overflow');
                 });
+                if (col) col.style.removeProperty('width');
                 return;
             }
 
-            // nowrap najpierw – bez niego scrollWidth pokazuje szerokość po zawinięciu
             cells.forEach((c) => {
                 if (c.style.getPropertyValue('white-space') !== 'nowrap') {
                     c.style.setProperty('white-space', 'nowrap', 'important');
@@ -227,18 +245,22 @@
             });
 
             let need = 0;
-            cells.forEach((c) => {
-                need = Math.max(need, c.scrollWidth);
-            });
-            need = Math.ceil(need) + 18;   // zapas na padding i obramowanie
+            cells.forEach((c) => { need = Math.max(need, contentWidth(c)); });
+            need = Math.min(need, MAX_COL_PX);
+            const px = need + 'px';
 
-            // Ustawiamy tylko gdy realnie się zmienia – inaczej MutationObserver
-            // wpadłby w pętlę przeliczania
+            // Przy table-layout:fixed o szerokości decyduje <col>, jeśli tabela go ma
+            if (col && col.style.getPropertyValue('width') !== px) {
+                col.style.setProperty('width', px, 'important');
+            }
+
             cells.forEach((c) => {
-                const px = need + 'px';
                 if (c.style.getPropertyValue('width') !== px) {
                     c.style.setProperty('width', px, 'important');
                     c.style.setProperty('min-width', px, 'important');
+                    // gdyby coś było dłuższe niż limit – ucinamy zamiast wylewać poza tabelę
+                    c.style.setProperty('overflow', 'hidden', 'important');
+                    c.style.setProperty('text-overflow', 'ellipsis', 'important');
                 }
             });
         });
