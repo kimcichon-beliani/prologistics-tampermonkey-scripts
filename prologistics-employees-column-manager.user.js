@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.8.2
+// @version      2.0.0
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,11 +20,12 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.8.2';
+    const VERSION = '2.0.0';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
     const WIDTH_KEY = 'tm_kimrioter_employees_autowidth';
+    const TABLE_FLAG = 'data-tmcols';
 
     const PRESET = [
         'Department abbrev.',
@@ -122,78 +123,74 @@
 
     // ---------------------------------------------------------------- ukrywanie kolumn
 
-    // Sprzątanie po wersjach <= 1.5.0: globalny <style> potrafił ukrywać kolumny
-    // w tabelach układu strony i wygaszał pół dokumentu.
-    function dropLegacyStyle() {
-        const el = document.getElementById('tm-cols-style');
-        if (el) el.remove();
+    // Wersje 1.6–1.8 ustawiały styl na każdej komórce osobno. Przy 5000 wierszy to
+    // ponad 100 tys. zapisów na jedno kliknięcie i stąd zacinanie. Teraz wszystko
+    // idzie jedną regułą CSS – koszt nie zależy od liczby wierszy.
+    const AUTO_COLS = ['Email', 'Teams'];
+    const MAX_COL_PX = 320;
+
+    let widthCache = { key: '', map: null, planB: false };
+
+    function styleEl() {
+        let el = document.getElementById('tm-cols-style');
+        if (!el) {
+            el = document.createElement('style');
+            el.id = 'tm-cols-style';
+            (document.head || document.documentElement).appendChild(el);
+        }
+        return el;
     }
 
-    // Tabela układu (zawiera w sobie inną tabelę) nigdy nie jest celem
-    function isDataTable(table) {
-        return !!table && !table.querySelector('table');
+    function markTable(table) {
+        document.querySelectorAll('[' + TABLE_FLAG + ']').forEach((t) => {
+            if (t !== table) t.removeAttribute(TABLE_FLAG);
+        });
+        if (!table.hasAttribute(TABLE_FLAG)) table.setAttribute(TABLE_FLAG, '1');
     }
 
-    // Ukrywamy WYŁĄCZNIE komórki wskazanej tabeli, ustawiając styl na konkretnym
-    // elemencie. Nic poza tą tabelą nie może zostać dotknięte.
-    function applyHiding() {
-        dropLegacyStyle();
-        if (!currentTable || !currentTable.isConnected) return;
+    // Selektor dla n-tej kolumny, wyłącznie bezpośrednie dzieci wskazanej tabeli
+    function colSelector(n) {
+        const base = `table[${TABLE_FLAG}]`;
+        return ['thead', 'tbody', 'tfoot']
+            .map((sec) => `${base} > ${sec} > tr > th:nth-child(${n}),${base} > ${sec} > tr > td:nth-child(${n})`)
+            .join(',') + `,${base} > tr > th:nth-child(${n}),${base} > tr > td:nth-child(${n})`;
+    }
 
-        if (!isDataTable(currentTable)) {
-            console.warn(LOG, 'Wybrana tabela zawiera zagnieżdżoną tabelę – ukrywanie wstrzymane');
-            return;
+    function hiddenIndexes() {
+        const set = new Set();
+        currentLabels.forEach((label, i) => {
+            if (hidden.has(norm(label))) set.add(i);
+        });
+        return set;
+    }
+
+    // Pomiar bez przemiatania wszystkich komórek: najpierw po długości tekstu
+    // szukamy najdłuższej wartości (sam odczyt, bez layoutu), a Range mierzy
+    // tylko tę jedną komórkę plus nagłówek.
+    function measureColumn(table, idx) {
+        const rows = table.rows;
+        let longest = null;
+        let maxLen = -1;
+
+        for (let r = 0; r < rows.length; r++) {
+            const cell = rows[r].cells[idx];
+            if (!cell) continue;
+            const len = cell.textContent.length;
+            if (len > maxLen) { maxLen = len; longest = cell; }
         }
 
-        const hideIdx = new Set();
-        currentLabels.forEach((label, i) => {
-            if (hidden.has(norm(label))) hideIdx.add(i);
+        const head = rows[0] && rows[0].cells[idx];
+        let need = 0;
+        [longest, head].forEach((c) => {
+            if (c) need = Math.max(need, contentWidth(c));
         });
-
-        const rows = currentTable.querySelectorAll(
-            ':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr'
-        );
-
-        let touched = 0;
-        rows.forEach((row) => {
-            const cells = row.querySelectorAll(':scope > th, :scope > td');
-            cells.forEach((cell, i) => {
-                const shouldHide = hideIdx.has(i);
-                const isHidden = cell.style.getPropertyValue('display') === 'none';
-                if (shouldHide) {
-                    if (!isHidden) {
-                        // !important, bo arkusz strony wymusza display:table-cell
-                        cell.style.setProperty('display', 'none', 'important');
-                        touched++;
-                    }
-                } else if (isHidden) {
-                    cell.style.removeProperty('display');
-                    touched++;
-                }
-            });
-        });
-
-        applyWidths();
-
-        console.log(LOG, 'applyHiding →',
-            'ukrywane indeksy:', [...hideIdx],
-            '| wierszy:', rows.length,
-            '| zmienionych komorek:', touched,
-            '| tabela:', currentTable.offsetWidth + 'x' + currentTable.offsetHeight,
-            currentTable.className || '(brak klasy)');
+        return Math.min(need, MAX_COL_PX);
     }
 
-    // Tylko te kolumny dopasowują się do treści – reszta zostaje jak była.
-    const AUTO_COLS = ['Email', 'Teams'];
-    const MAX_COL_PX = 320;   // górny limit, żeby jeden długi adres nie rozjechał tabeli
-
-    // scrollWidth na komórce z overflow:visible zwraca szerokość widoczną, nie realną
-    // szerokość tekstu. Range mierzy faktyczny obrys treści, także gdy wystaje.
     function contentWidth(cell) {
         const range = document.createRange();
         range.selectNodeContents(cell);
         const w = range.getBoundingClientRect().width;
-        range.detach && range.detach();
 
         const cs = getComputedStyle(cell);
         const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
@@ -201,113 +198,72 @@
         return Math.ceil(w + pad) + 6;
     }
 
-    function applyWidths() {
-        const t = currentTable;
-        if (!t || !t.isConnected) return;
+    function computeWidths(table, hideIdx) {
+        const key = [table.rows.length, currentLabels.join('|'), [...hideIdx].join(',')].join('#');
+        if (widthCache.key === key && widthCache.map) return widthCache.map;
 
-        const targetIdx = [];
+        const map = new Map();
         currentLabels.forEach((label, i) => {
-            if (AUTO_COLS.some((n) => norm(n) === norm(label))) targetIdx.push(i);
+            if (hideIdx.has(i)) return;
+            if (!AUTO_COLS.some((n) => norm(n) === norm(label))) return;
+            map.set(i, measureColumn(table, i));
         });
-        if (!targetIdx.length) return;
 
-        const rows = [...t.querySelectorAll(
-            ':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr'
-        )];
-        if (!rows.length) return;
-
-        const cols = ownCells(t, 'col');
-
-        targetIdx.forEach((idx) => {
-            const cells = rows
-                .map((row) => row.querySelectorAll(':scope > th, :scope > td')[idx])
-                .filter((c) => c && c.style.getPropertyValue('display') !== 'none');
-            if (!cells.length) return;
-
-            const col = cols[idx];
-
-            if (!autoWidth) {
-                t.style.removeProperty('table-layout');
-                t.style.removeProperty('width');
-                rows.forEach((row) => {
-                    row.querySelectorAll(':scope > th, :scope > td').forEach((c) => {
-                        c.style.removeProperty('white-space');
-                        c.style.removeProperty('width');
-                        c.style.removeProperty('min-width');
-                        c.style.removeProperty('overflow');
-                        c.style.removeProperty('text-overflow');
-                    });
-                });
-                if (col) col.style.removeProperty('width');
-                return;
-            }
-
-            cells.forEach((c) => {
-                if (c.style.getPropertyValue('white-space') !== 'nowrap') {
-                    c.style.setProperty('white-space', 'nowrap', 'important');
-                }
-            });
-
-            let need = 0;
-            cells.forEach((c) => { need = Math.max(need, contentWidth(c)); });
-            need = Math.min(need, MAX_COL_PX);
-            const px = need + 'px';
-
-            // Przy table-layout:fixed o szerokości decyduje <col>, jeśli tabela go ma
-            if (col && col.style.getPropertyValue('width') !== px) {
-                col.style.setProperty('width', px, 'important');
-            }
-
-            cells.forEach((c) => {
-                c.style.setProperty('width', px, 'important');
-                c.style.setProperty('min-width', px, 'important');
-                c.style.setProperty('overflow', 'hidden', 'important');
-                c.style.setProperty('text-overflow', 'ellipsis', 'important');
-            });
-
-            // Sprawdzamy, czy kolumna faktycznie urosła. Jeśli nie – o szerokości
-            // decyduje algorytm tabeli, więc przypinamy pozostałe kolumny do ich
-            // obecnych szerokości i przełączamy tabelę na layout automatyczny.
-            const head = cells[0];
-            const grew = head.offsetWidth + 3 >= need;
-
-            console.log(LOG, 'szerokość kolumny', currentLabels[idx],
-                '| potrzeba:', need,
-                '| po ustawieniu:', head.offsetWidth,
-                '| <col>:', !!col,
-                '| layout:', getComputedStyle(t).tableLayout,
-                grew ? '| OK' : '| NIE ZADZIAŁAŁO – plan B');
-
-            if (!grew) forceAutoLayout(t, rows, targetIdx, idx, need);
-        });
+        widthCache = { key, map, planB: widthCache.planB };
+        return map;
     }
 
-    // Plan B: usztywniamy wszystkie pozostałe kolumny na ich obecnych szerokościach,
-    // przełączamy tabelę na layout automatyczny i dopiero wtedy poszerzamy docelową.
-    function forceAutoLayout(t, rows, targetIdx, idx, need) {
-        const headRow = rows[0];
-        if (!headRow) return;
-        const headCells = [...headRow.querySelectorAll(':scope > th, :scope > td')];
+    function applyHiding() {
+        if (!currentTable || !currentTable.isConnected) return;
+        markTable(currentTable);
 
-        headCells.forEach((c, i) => {
-            if (i === idx) return;
-            if (c.style.getPropertyValue('display') === 'none') return;
-            if (!c.style.getPropertyValue('width')) {
-                c.style.setProperty('width', c.offsetWidth + 'px', 'important');
-            }
-        });
-
-        t.style.setProperty('table-layout', 'auto', 'important');
-        t.style.setProperty('width', 'auto', 'important');
-
-        const target = headCells[idx];
-        if (target) {
-            target.style.setProperty('width', need + 'px', 'important');
-            target.style.setProperty('min-width', need + 'px', 'important');
+        const marked = document.querySelectorAll('table[' + TABLE_FLAG + ']');
+        if (marked.length !== 1) {
+            styleEl().textContent = '';
+            return;
         }
 
-        console.log(LOG, 'plan B zastosowany dla', currentLabels[idx],
-            '→', target ? target.offsetWidth : '?');
+        const hideIdx = hiddenIndexes();
+        const parts = [];
+
+        hideIdx.forEach((i) => {
+            parts.push(colSelector(i + 1) + '{display:none !important;}');
+        });
+
+        if (autoWidth) {
+            const widths = computeWidths(currentTable, hideIdx);
+            widths.forEach((px, i) => {
+                parts.push(colSelector(i + 1) +
+                    `{width:${px}px !important;min-width:${px}px !important;` +
+                    'white-space:nowrap !important;overflow:hidden !important;' +
+                    'text-overflow:ellipsis !important;}');
+            });
+
+            // Plan B: przy table-layout:fixed szerokość kolumny ustala algorytm tabeli,
+            // więc pozostałe kolumny przypinamy do obecnych szerokości i puszczamy layout auto
+            if (widths.size && widthCache.planB) {
+                parts.push(`table[${TABLE_FLAG}]{table-layout:auto !important;width:auto !important;}`);
+                const headRow = currentTable.rows[0];
+                if (headRow) {
+                    [...headRow.cells].forEach((c, i) => {
+                        if (hideIdx.has(i) || widths.has(i)) return;
+                        parts.push(colSelector(i + 1) + `{width:${c.offsetWidth}px !important;}`);
+                    });
+                }
+            }
+        }
+
+        styleEl().textContent = parts.join('\n');
+
+        // Jednorazowa weryfikacja: jeśli kolumna nie urosła, włączamy plan B i powtarzamy
+        if (autoWidth && !widthCache.planB && widthCache.map && widthCache.map.size) {
+            const [idx, need] = [...widthCache.map.entries()][0];
+            const head = currentTable.rows[0] && currentTable.rows[0].cells[idx];
+            if (head && head.offsetWidth + 3 < need) {
+                widthCache.planB = true;
+                applyHiding();
+            }
+        }
     }
 
     // ---------------------------------------------------------------- panel UI
@@ -408,7 +364,6 @@
         aw.addEventListener('change', () => {
             autoWidth = aw.checked;
             localStorage.setItem(WIDTH_KEY, autoWidth ? '1' : '0');
-            applyWidths();
         });
         root.querySelectorAll('.actions button').forEach((b) => {
             b.addEventListener('click', () => {
