@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.7.1
+// @version      1.7.2
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,7 +20,7 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.7.1';
+    const VERSION = '1.7.2';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
@@ -183,41 +183,42 @@
             currentTable.className || '(brak klasy)');
     }
 
-    // Po ukryciu kolumn reszta zachowuje szerokości sprzed zmiany i tekst się łamie.
-    // Zdejmujemy sztywne wymiary, żeby przeglądarka rozdzieliła miejsce wg treści.
+    // Tylko te kolumny dopasowują się do treści – reszta zostaje jak była.
+    const AUTO_COLS = ['Email', 'Teams'];
+
+    // Poprzednia wersja zdejmowała wymiary z całej tabeli i rozpychała ją poza ekran.
+    // Teraz ruszamy wyłącznie komórki wskazanych kolumn, table-layout zostaje nietknięty.
     function applyWidths() {
         const t = currentTable;
-        if (!t) return;
+        if (!t || !t.isConnected) return;
 
-        const cells = [
-            ...ownCells(t, 'th'),
-            ...ownCells(t, 'td'),
-            ...ownCells(t, 'col')
-        ];
+        const targetIdx = new Set();
+        currentLabels.forEach((label, i) => {
+            if (AUTO_COLS.some((n) => norm(n) === norm(label))) targetIdx.add(i);
+        });
+        if (!targetIdx.size) return;
 
-        if (autoWidth) {
-            t.style.setProperty('table-layout', 'auto', 'important');
-            cells.forEach((c) => {
-                c.style.setProperty('width', 'auto', 'important');
-                c.style.setProperty('min-width', '0', 'important');
-                if (c.hasAttribute('width')) {
-                    c.dataset.tmw = c.getAttribute('width');
-                    c.removeAttribute('width');
+        const rows = t.querySelectorAll(
+            ':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr'
+        );
+
+        rows.forEach((row) => {
+            const cells = row.querySelectorAll(':scope > th, :scope > td');
+            cells.forEach((cell, i) => {
+                if (!targetIdx.has(i)) return;
+                if (cell.style.getPropertyValue('display') === 'none') return;
+
+                if (autoWidth) {
+                    cell.style.setProperty('white-space', 'nowrap', 'important');
+                    cell.style.setProperty('width', 'auto', 'important');
+                    cell.style.setProperty('min-width', 'max-content', 'important');
+                } else {
+                    cell.style.removeProperty('white-space');
+                    cell.style.removeProperty('width');
+                    cell.style.removeProperty('min-width');
                 }
             });
-            ownCells(t, 'th').forEach((th) => th.style.setProperty('white-space', 'nowrap', 'important'));
-        } else {
-            t.style.removeProperty('table-layout');
-            cells.forEach((c) => {
-                c.style.removeProperty('width');
-                c.style.removeProperty('min-width');
-                if (c.dataset.tmw !== undefined) {
-                    c.setAttribute('width', c.dataset.tmw);
-                    delete c.dataset.tmw;
-                }
-            });
-            ownCells(t, 'th').forEach((th) => th.style.removeProperty('white-space'));
-        }
+        });
     }
 
     // ---------------------------------------------------------------- panel UI
@@ -303,7 +304,7 @@
                         <button type="button" data-act="all">Pokaż wszystkie</button>
                         <button type="button" data-act="preset">Ukryj zbędne</button>
                     </div>
-                    <label class="opt"><input type="checkbox" id="autow">Dopasuj szerokości do treści</label>
+                    <label class="opt"><input type="checkbox" id="autow">Szersze Email i Teams</label>
                     <div id="list"></div>
                     <div class="foot"><span id="count"></span></div>
                 </div>
