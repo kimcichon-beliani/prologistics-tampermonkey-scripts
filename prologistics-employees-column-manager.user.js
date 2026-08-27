@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      2.0.1
+// @version      2.1.0
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,11 +20,10 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '2.0.1';
+    const VERSION = '2.1.0';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
-    const WIDTH_KEY = 'tm_kimrioter_employees_autowidth';
     const TABLE_FLAG = 'data-tmcols';
 
     const PRESET = [
@@ -68,7 +67,6 @@
     }
 
     let hidden = loadHidden();
-    let autoWidth = localStorage.getItem(WIDTH_KEY) !== '0';
     let currentTable = null;
     let currentLabels = [];
     let panelOpen = false;
@@ -126,10 +124,10 @@
     // Wersje 1.6–1.8 ustawiały styl na każdej komórce osobno. Przy 5000 wierszy to
     // ponad 100 tys. zapisów na jedno kliknięcie i stąd zacinanie. Teraz wszystko
     // idzie jedną regułą CSS – koszt nie zależy od liczby wierszy.
-    const AUTO_COLS = ['Email', 'Teams'];
-    const MAX_COL_PX = 320;
+    const PINNED_COLS = ['Email', 'Teams'];
 
-    let widthCache = { key: '', map: null, planB: false };
+    // Szerokości tych kolumn z widoku bez żadnych ukryć – mierzone raz i trzymane
+    let baseline = { key: '', map: null };
 
     function styleEl() {
         let el = document.getElementById('tm-cols-style');
@@ -164,52 +162,34 @@
         return set;
     }
 
-    // Pomiar bez przemiatania wszystkich komórek: najpierw po długości tekstu
-    // szukamy najdłuższej wartości (sam odczyt, bez layoutu), a Range mierzy
-    // tylko tę jedną komórkę plus nagłówek.
-    function measureColumn(table, idx) {
-        const rows = table.rows;
-        let longest = null;
-        let maxLen = -1;
+    // Mierzymy przy chwilowo wyłączonych regułach, czyli w układzie z pełnym
+    // kompletem kolumn. Dzięki temu Email i Teams zachowują dokładnie tę
+    // szerokość, którą mają, gdy nic nie jest ukryte.
+    function measureBaseline(table) {
+        const key = currentLabels.join('|');
+        if (baseline.key === key && baseline.map) return baseline.map;
 
-        for (let r = 0; r < rows.length; r++) {
-            const cell = rows[r].cells[idx];
-            if (!cell) continue;
-            const len = cell.textContent.length;
-            if (len > maxLen) { maxLen = len; longest = cell; }
+        const idx = [];
+        currentLabels.forEach((label, i) => {
+            if (PINNED_COLS.some((n) => norm(n) === norm(label))) idx.push(i);
+        });
+        if (!idx.length) return new Map();
+
+        const el = styleEl();
+        const saved = el.textContent;
+        el.textContent = '';                     // pełny widok
+
+        const headRow = table.rows[0];
+        const map = new Map();
+        if (headRow) {
+            idx.forEach((i) => {
+                const cell = headRow.cells[i];
+                if (cell && cell.offsetWidth) map.set(i, cell.offsetWidth);
+            });
         }
 
-        const head = rows[0] && rows[0].cells[idx];
-        let need = 0;
-        [longest, head].forEach((c) => {
-            if (c) need = Math.max(need, contentWidth(c));
-        });
-        return Math.min(need, MAX_COL_PX);
-    }
-
-    function contentWidth(cell) {
-        const range = document.createRange();
-        range.selectNodeContents(cell);
-        const w = range.getBoundingClientRect().width;
-
-        const cs = getComputedStyle(cell);
-        const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
-                    parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
-        return Math.ceil(w + pad) + 6;
-    }
-
-    function computeWidths(table, hideIdx) {
-        const key = [table.rows.length, currentLabels.join('|'), [...hideIdx].join(',')].join('#');
-        if (widthCache.key === key && widthCache.map) return widthCache.map;
-
-        const map = new Map();
-        currentLabels.forEach((label, i) => {
-            if (hideIdx.has(i)) return;
-            if (!AUTO_COLS.some((n) => norm(n) === norm(label))) return;
-            map.set(i, measureColumn(table, i));
-        });
-
-        widthCache = { key, map, planB: widthCache.planB };
+        el.textContent = saved;
+        baseline = { key, map };
         return map;
     }
 
@@ -223,6 +203,7 @@
             return;
         }
 
+        const widths = measureBaseline(currentTable);
         const hideIdx = hiddenIndexes();
         const parts = [];
 
@@ -230,42 +211,20 @@
             parts.push(colSelector(i + 1) + '{display:none !important;}');
         });
 
-        if (autoWidth) {
-            const widths = computeWidths(currentTable, hideIdx);
-            widths.forEach((px, i) => {
-                parts.push(colSelector(i + 1) +
-                    `{width:${px}px !important;min-width:${px}px !important;` +
-                    'white-space:nowrap !important;overflow:hidden !important;' +
-                    'text-overflow:ellipsis !important;}');
-            });
-
-            // Plan B: przy table-layout:fixed szerokość kolumny ustala algorytm tabeli,
-            // więc pozostałe kolumny przypinamy do obecnych szerokości i puszczamy layout auto
-            if (widths.size && widthCache.planB) {
-                // bez width:auto – tabela zostaje w szerokości kontenera, a kolumny
-                // Email i Teams biorą miejsce po ukrytych zamiast rozpychać stronę
-                parts.push(`table[${TABLE_FLAG}]{table-layout:auto !important;}`);
-                const headRow = currentTable.rows[0];
-                if (headRow) {
-                    [...headRow.cells].forEach((c, i) => {
-                        if (hideIdx.has(i) || widths.has(i)) return;
-                        parts.push(colSelector(i + 1) + `{width:${c.offsetWidth}px !important;}`);
-                    });
-                }
-            }
+        // Przypięcie działa tylko przy layoucie automatycznym – przy fixed
+        // szerokości kolumn wyznacza algorytm tabeli i reguły są ignorowane.
+        let pinned = 0;
+        widths.forEach((px, i) => {
+            if (hideIdx.has(i)) return;
+            parts.push(colSelector(i + 1) +
+                `{width:${px}px !important;min-width:${px}px !important;max-width:${px}px !important;}`);
+            pinned++;
+        });
+        if (pinned) {
+            parts.push(`table[${TABLE_FLAG}]{table-layout:auto !important;}`);
         }
 
         styleEl().textContent = parts.join('\n');
-
-        // Jednorazowa weryfikacja: jeśli kolumna nie urosła, włączamy plan B i powtarzamy
-        if (autoWidth && !widthCache.planB && widthCache.map && widthCache.map.size) {
-            const [idx, need] = [...widthCache.map.entries()][0];
-            const head = currentTable.rows[0] && currentTable.rows[0].cells[idx];
-            if (head && head.offsetWidth + 3 < need) {
-                widthCache.planB = true;
-                applyHiding();
-            }
-        }
     }
 
     // ---------------------------------------------------------------- panel UI
@@ -351,7 +310,6 @@
                         <button type="button" data-act="all">Pokaż wszystkie</button>
                         <button type="button" data-act="preset">Ukryj zbędne</button>
                     </div>
-                    <label class="opt"><input type="checkbox" id="autow">Szersze Email i Teams</label>
                     <div id="list"></div>
                     <div class="foot"><span id="count"></span></div>
                 </div>
@@ -361,12 +319,6 @@
         root.getElementById('toggle').addEventListener('click', () => setOpen(!panelOpen));
         root.getElementById('close').addEventListener('click', () => setOpen(false));
 
-        const aw = root.getElementById('autow');
-        aw.checked = autoWidth;
-        aw.addEventListener('change', () => {
-            autoWidth = aw.checked;
-            localStorage.setItem(WIDTH_KEY, autoWidth ? '1' : '0');
-        });
         root.querySelectorAll('.actions button').forEach((b) => {
             b.addEventListener('click', () => {
                 if (b.dataset.act === 'all') hidden.clear();
