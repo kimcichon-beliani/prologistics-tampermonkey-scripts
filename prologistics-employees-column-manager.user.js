@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.5.0
+// @version      1.7.0
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,11 +20,10 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.5.0';
+    const VERSION = '1.7.0';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
-    const TABLE_FLAG = 'data-tmcols';
 
     const PRESET = [
         'Department abbrev.',
@@ -75,11 +74,20 @@
 
     // ---------------------------------------------------------------- tabela
 
+    // Strona stoi na tabeli układu, a siatka Employees jest w niej zagnieżdżona.
+    // querySelectorAll('th') liczy też potomków, więc tabela zewnętrzna miała tyle
+    // samo nagłówków i wygrywała – ukrywanie szło wtedy po komórkach układu strony.
+    // Liczymy WYŁĄCZNIE nagłówki należące do samej tabeli i pomijamy tabele-kontenery.
+    function ownCells(table, sel) {
+        return [...table.querySelectorAll(sel)].filter((el) => el.closest('table') === table);
+    }
+
     function findTable() {
         let best = null;
         let bestCount = 0;
         document.querySelectorAll('table').forEach((t) => {
-            const n = t.querySelectorAll('th').length;
+            if (t.querySelector('table')) return;        // tabela układu – pomijamy
+            const n = ownCells(t, 'th').length;
             if (n > bestCount) {
                 best = t;
                 bestCount = n;
@@ -88,18 +96,8 @@
         return bestCount >= 3 ? best : null;
     }
 
-    // Znacznik na JEDNEJ tabeli. Wcześniej selektor budowany z klasy potrafił zejść
-    // do gołego "table" i chował kolumny we wszystkich tabelach strony (biały ekran).
-    // Dodatkowy atrybut jest dla Reacta obojętny – nie rusza struktury drzewa.
-    function markTable(table) {
-        document.querySelectorAll('[' + TABLE_FLAG + ']').forEach((t) => {
-            if (t !== table) t.removeAttribute(TABLE_FLAG);
-        });
-        if (!table.hasAttribute(TABLE_FLAG)) table.setAttribute(TABLE_FLAG, '1');
-    }
-
     function readLabels(table) {
-        const rows = table.querySelectorAll('thead tr');
+        const rows = ownCells(table, 'thead tr');
         let headRow = null;
         rows.forEach((r) => {
             if (!headRow || r.cells.length > headRow.cells.length) headRow = r;
@@ -122,48 +120,63 @@
 
     // ---------------------------------------------------------------- ukrywanie kolumn
 
-    function styleEl() {
-        let el = document.getElementById('tm-cols-style');
-        if (!el) {
-            el = document.createElement('style');
-            el.id = 'tm-cols-style';
-            (document.head || document.documentElement).appendChild(el);
-        }
-        return el;
+    // Sprzątanie po wersjach <= 1.5.0: globalny <style> potrafił ukrywać kolumny
+    // w tabelach układu strony i wygaszał pół dokumentu.
+    function dropLegacyStyle() {
+        const el = document.getElementById('tm-cols-style');
+        if (el) el.remove();
     }
 
-    function applyHiding() {
-        if (!currentTable) return;
-        markTable(currentTable);
+    // Tabela układu (zawiera w sobie inną tabelę) nigdy nie jest celem
+    function isDataTable(table) {
+        return !!table && !table.querySelector('table');
+    }
 
-        // Bezpiecznik: reguły powstają tylko gdy znacznik pasuje do dokładnie jednej tabeli
-        const marked = document.querySelectorAll('table[' + TABLE_FLAG + ']');
-        if (marked.length !== 1) {
-            styleEl().textContent = '';
-            console.warn(LOG, 'Znacznik tabeli niejednoznaczny – ukrywanie wstrzymane');
+    // Ukrywamy WYŁĄCZNIE komórki wskazanej tabeli, ustawiając styl na konkretnym
+    // elemencie. Nic poza tą tabelą nie może zostać dotknięte.
+    function applyHiding() {
+        dropLegacyStyle();
+        if (!currentTable || !currentTable.isConnected) return;
+
+        if (!isDataTable(currentTable)) {
+            console.warn(LOG, 'Wybrana tabela zawiera zagnieżdżoną tabelę – ukrywanie wstrzymane');
             return;
         }
 
-        const rules = [];
+        const hideIdx = new Set();
         currentLabels.forEach((label, i) => {
-            if (!hidden.has(norm(label))) return;
-            const n = i + 1;
-            // Wyłącznie bezpośrednie dzieci: tabele zagnieżdżone i układowe zostają nietknięte
-            ['thead', 'tbody', 'tfoot'].forEach((sec) => {
-                rules.push(
-                    `table[${TABLE_FLAG}] > ${sec} > tr > th:nth-child(${n}),` +
-                    `table[${TABLE_FLAG}] > ${sec} > tr > td:nth-child(${n})`
-                );
-            });
-            rules.push(
-                `table[${TABLE_FLAG}] > tr > th:nth-child(${n}),` +
-                `table[${TABLE_FLAG}] > tr > td:nth-child(${n})`
-            );
+            if (hidden.has(norm(label))) hideIdx.add(i);
         });
 
-        styleEl().textContent = rules.length
-            ? rules.join(',') + '{display:none !important;}'
-            : '';
+        const rows = currentTable.querySelectorAll(
+            ':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr'
+        );
+
+        let touched = 0;
+        rows.forEach((row) => {
+            const cells = row.querySelectorAll(':scope > th, :scope > td');
+            cells.forEach((cell, i) => {
+                const shouldHide = hideIdx.has(i);
+                const isHidden = cell.style.getPropertyValue('display') === 'none';
+                if (shouldHide) {
+                    if (!isHidden) {
+                        // !important, bo arkusz strony wymusza display:table-cell
+                        cell.style.setProperty('display', 'none', 'important');
+                        touched++;
+                    }
+                } else if (isHidden) {
+                    cell.style.removeProperty('display');
+                    touched++;
+                }
+            });
+        });
+
+        console.log(LOG, 'applyHiding →',
+            'ukrywane indeksy:', [...hideIdx],
+            '| wierszy:', rows.length,
+            '| zmienionych komorek:', touched,
+            '| tabela:', currentTable.offsetWidth + 'x' + currentTable.offsetHeight,
+            currentTable.className || '(brak klasy)');
     }
 
     // ---------------------------------------------------------------- panel UI
