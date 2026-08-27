@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.7.2
+// @version      1.8.0
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,7 +20,7 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.7.2';
+    const VERSION = '1.8.0';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
@@ -186,36 +186,59 @@
     // Tylko te kolumny dopasowują się do treści – reszta zostaje jak była.
     const AUTO_COLS = ['Email', 'Teams'];
 
-    // Poprzednia wersja zdejmowała wymiary z całej tabeli i rozpychała ją poza ekran.
-    // Teraz ruszamy wyłącznie komórki wskazanych kolumn, table-layout zostaje nietknięty.
+    // Tabela ma sztywny layout: szerokość kolumny bierze się z wiersza nagłówka,
+    // a min-width na komórkach jest ignorowany i treść wylewa się poza obramowanie.
+    // Dlatego mierzymy najszerszą zawartość kolumny i ustawiamy wynik na nagłówku.
     function applyWidths() {
         const t = currentTable;
         if (!t || !t.isConnected) return;
 
-        const targetIdx = new Set();
+        const targetIdx = [];
         currentLabels.forEach((label, i) => {
-            if (AUTO_COLS.some((n) => norm(n) === norm(label))) targetIdx.add(i);
+            if (AUTO_COLS.some((n) => norm(n) === norm(label))) targetIdx.push(i);
         });
-        if (!targetIdx.size) return;
+        if (!targetIdx.length) return;
 
-        const rows = t.querySelectorAll(
+        const rows = [...t.querySelectorAll(
             ':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr'
-        );
+        )];
+        if (!rows.length) return;
 
-        rows.forEach((row) => {
-            const cells = row.querySelectorAll(':scope > th, :scope > td');
-            cells.forEach((cell, i) => {
-                if (!targetIdx.has(i)) return;
-                if (cell.style.getPropertyValue('display') === 'none') return;
+        targetIdx.forEach((idx) => {
+            const cells = rows
+                .map((row) => row.querySelectorAll(':scope > th, :scope > td')[idx])
+                .filter((c) => c && c.style.getPropertyValue('display') !== 'none');
+            if (!cells.length) return;
 
-                if (autoWidth) {
-                    cell.style.setProperty('white-space', 'nowrap', 'important');
-                    cell.style.setProperty('width', 'auto', 'important');
-                    cell.style.setProperty('min-width', 'max-content', 'important');
-                } else {
-                    cell.style.removeProperty('white-space');
-                    cell.style.removeProperty('width');
-                    cell.style.removeProperty('min-width');
+            if (!autoWidth) {
+                cells.forEach((c) => {
+                    c.style.removeProperty('white-space');
+                    c.style.removeProperty('width');
+                    c.style.removeProperty('min-width');
+                });
+                return;
+            }
+
+            // nowrap najpierw – bez niego scrollWidth pokazuje szerokość po zawinięciu
+            cells.forEach((c) => {
+                if (c.style.getPropertyValue('white-space') !== 'nowrap') {
+                    c.style.setProperty('white-space', 'nowrap', 'important');
+                }
+            });
+
+            let need = 0;
+            cells.forEach((c) => {
+                need = Math.max(need, c.scrollWidth);
+            });
+            need = Math.ceil(need) + 18;   // zapas na padding i obramowanie
+
+            // Ustawiamy tylko gdy realnie się zmienia – inaczej MutationObserver
+            // wpadłby w pętlę przeliczania
+            cells.forEach((c) => {
+                const px = need + 'px';
+                if (c.style.getPropertyValue('width') !== px) {
+                    c.style.setProperty('width', px, 'important');
+                    c.style.setProperty('min-width', px, 'important');
                 }
             });
         });
