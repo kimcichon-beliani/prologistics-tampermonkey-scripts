@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      2.0.0
+// @version      2.0.1
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,7 +20,7 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '2.0.0';
+    const VERSION = '2.0.1';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
@@ -242,7 +242,9 @@
             // Plan B: przy table-layout:fixed szerokość kolumny ustala algorytm tabeli,
             // więc pozostałe kolumny przypinamy do obecnych szerokości i puszczamy layout auto
             if (widths.size && widthCache.planB) {
-                parts.push(`table[${TABLE_FLAG}]{table-layout:auto !important;width:auto !important;}`);
+                // bez width:auto – tabela zostaje w szerokości kontenera, a kolumny
+                // Email i Teams biorą miejsce po ukrytych zamiast rozpychać stronę
+                parts.push(`table[${TABLE_FLAG}]{table-layout:auto !important;}`);
                 const headRow = currentTable.rows[0];
                 if (headRow) {
                     [...headRow.cells].forEach((c, i) => {
