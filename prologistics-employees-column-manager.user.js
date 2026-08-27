@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.8.1
+// @version      1.8.2
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,7 +20,7 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.8.1';
+    const VERSION = '1.8.2';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
@@ -227,12 +227,16 @@
             const col = cols[idx];
 
             if (!autoWidth) {
-                cells.forEach((c) => {
-                    c.style.removeProperty('white-space');
-                    c.style.removeProperty('width');
-                    c.style.removeProperty('min-width');
-                    c.style.removeProperty('overflow');
-                    c.style.removeProperty('text-overflow');
+                t.style.removeProperty('table-layout');
+                t.style.removeProperty('width');
+                rows.forEach((row) => {
+                    row.querySelectorAll(':scope > th, :scope > td').forEach((c) => {
+                        c.style.removeProperty('white-space');
+                        c.style.removeProperty('width');
+                        c.style.removeProperty('min-width');
+                        c.style.removeProperty('overflow');
+                        c.style.removeProperty('text-overflow');
+                    });
                 });
                 if (col) col.style.removeProperty('width');
                 return;
@@ -255,15 +259,55 @@
             }
 
             cells.forEach((c) => {
-                if (c.style.getPropertyValue('width') !== px) {
-                    c.style.setProperty('width', px, 'important');
-                    c.style.setProperty('min-width', px, 'important');
-                    // gdyby coś było dłuższe niż limit – ucinamy zamiast wylewać poza tabelę
-                    c.style.setProperty('overflow', 'hidden', 'important');
-                    c.style.setProperty('text-overflow', 'ellipsis', 'important');
-                }
+                c.style.setProperty('width', px, 'important');
+                c.style.setProperty('min-width', px, 'important');
+                c.style.setProperty('overflow', 'hidden', 'important');
+                c.style.setProperty('text-overflow', 'ellipsis', 'important');
             });
+
+            // Sprawdzamy, czy kolumna faktycznie urosła. Jeśli nie – o szerokości
+            // decyduje algorytm tabeli, więc przypinamy pozostałe kolumny do ich
+            // obecnych szerokości i przełączamy tabelę na layout automatyczny.
+            const head = cells[0];
+            const grew = head.offsetWidth + 3 >= need;
+
+            console.log(LOG, 'szerokość kolumny', currentLabels[idx],
+                '| potrzeba:', need,
+                '| po ustawieniu:', head.offsetWidth,
+                '| <col>:', !!col,
+                '| layout:', getComputedStyle(t).tableLayout,
+                grew ? '| OK' : '| NIE ZADZIAŁAŁO – plan B');
+
+            if (!grew) forceAutoLayout(t, rows, targetIdx, idx, need);
         });
+    }
+
+    // Plan B: usztywniamy wszystkie pozostałe kolumny na ich obecnych szerokościach,
+    // przełączamy tabelę na layout automatyczny i dopiero wtedy poszerzamy docelową.
+    function forceAutoLayout(t, rows, targetIdx, idx, need) {
+        const headRow = rows[0];
+        if (!headRow) return;
+        const headCells = [...headRow.querySelectorAll(':scope > th, :scope > td')];
+
+        headCells.forEach((c, i) => {
+            if (i === idx) return;
+            if (c.style.getPropertyValue('display') === 'none') return;
+            if (!c.style.getPropertyValue('width')) {
+                c.style.setProperty('width', c.offsetWidth + 'px', 'important');
+            }
+        });
+
+        t.style.setProperty('table-layout', 'auto', 'important');
+        t.style.setProperty('width', 'auto', 'important');
+
+        const target = headCells[idx];
+        if (target) {
+            target.style.setProperty('width', need + 'px', 'important');
+            target.style.setProperty('min-width', need + 'px', 'important');
+        }
+
+        console.log(LOG, 'plan B zastosowany dla', currentLabels[idx],
+            '→', target ? target.offsetWidth : '?');
     }
 
     // ---------------------------------------------------------------- panel UI
