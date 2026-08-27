@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Employees Column Manager
 // @namespace    kimrioter
-// @version      1.7.0
+// @version      1.7.1
 // @description  Ukrywanie/pokazywanie wybranych kolumn w tabeli Employees na prologistics.info
 // @author       kimrioter
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/prologistics-employees-column-manager.user.js
@@ -20,10 +20,11 @@
     //  - nie dopisujemy żadnych atrybutów do tabeli ani jej komórek
     //  - jedyna ingerencja w stronę to <style> w <head> z regułami nth-child
 
-    const VERSION = '1.7.0';
+    const VERSION = '1.7.1';
     const LOG = '[TM script by kimrioter]';
     const BRAND = '#750000';
     const STORAGE_KEY = 'tm_kimrioter_employees_hidden_cols';
+    const WIDTH_KEY = 'tm_kimrioter_employees_autowidth';
 
     const PRESET = [
         'Department abbrev.',
@@ -66,6 +67,7 @@
     }
 
     let hidden = loadHidden();
+    let autoWidth = localStorage.getItem(WIDTH_KEY) !== '0';
     let currentTable = null;
     let currentLabels = [];
     let panelOpen = false;
@@ -171,12 +173,51 @@
             });
         });
 
+        applyWidths();
+
         console.log(LOG, 'applyHiding →',
             'ukrywane indeksy:', [...hideIdx],
             '| wierszy:', rows.length,
             '| zmienionych komorek:', touched,
             '| tabela:', currentTable.offsetWidth + 'x' + currentTable.offsetHeight,
             currentTable.className || '(brak klasy)');
+    }
+
+    // Po ukryciu kolumn reszta zachowuje szerokości sprzed zmiany i tekst się łamie.
+    // Zdejmujemy sztywne wymiary, żeby przeglądarka rozdzieliła miejsce wg treści.
+    function applyWidths() {
+        const t = currentTable;
+        if (!t) return;
+
+        const cells = [
+            ...ownCells(t, 'th'),
+            ...ownCells(t, 'td'),
+            ...ownCells(t, 'col')
+        ];
+
+        if (autoWidth) {
+            t.style.setProperty('table-layout', 'auto', 'important');
+            cells.forEach((c) => {
+                c.style.setProperty('width', 'auto', 'important');
+                c.style.setProperty('min-width', '0', 'important');
+                if (c.hasAttribute('width')) {
+                    c.dataset.tmw = c.getAttribute('width');
+                    c.removeAttribute('width');
+                }
+            });
+            ownCells(t, 'th').forEach((th) => th.style.setProperty('white-space', 'nowrap', 'important'));
+        } else {
+            t.style.removeProperty('table-layout');
+            cells.forEach((c) => {
+                c.style.removeProperty('width');
+                c.style.removeProperty('min-width');
+                if (c.dataset.tmw !== undefined) {
+                    c.setAttribute('width', c.dataset.tmw);
+                    delete c.dataset.tmw;
+                }
+            });
+            ownCells(t, 'th').forEach((th) => th.style.removeProperty('white-space'));
+        }
     }
 
     // ---------------------------------------------------------------- panel UI
@@ -195,6 +236,8 @@
             color:#fff;padding:8px 10px;font-weight:bold;}
         .head button{background:transparent;border:0;color:#fff;cursor:pointer;font-size:15px;line-height:1;}
         .actions{display:flex;gap:6px;padding:8px;border-bottom:1px solid #eee;}
+        .opt{display:flex;align-items:center;gap:8px;padding:7px 10px;color:#222;border-bottom:1px solid #eee;cursor:pointer;}
+        .opt input{margin:0;cursor:pointer;}
         .actions button{flex:1;background:#f2f2f2;border:1px solid #ccc;border-radius:4px;padding:5px 4px;
             cursor:pointer;font-size:12px;color:#222;font-family:inherit;}
         .actions button:hover{background:#e4e4e4;}
@@ -260,6 +303,7 @@
                         <button type="button" data-act="all">Pokaż wszystkie</button>
                         <button type="button" data-act="preset">Ukryj zbędne</button>
                     </div>
+                    <label class="opt"><input type="checkbox" id="autow">Dopasuj szerokości do treści</label>
                     <div id="list"></div>
                     <div class="foot"><span id="count"></span></div>
                 </div>
@@ -268,6 +312,14 @@
         // Nasłuchy wewnątrz shadow roota – React nie ma tu dostępu, nic ich nie usunie
         root.getElementById('toggle').addEventListener('click', () => setOpen(!panelOpen));
         root.getElementById('close').addEventListener('click', () => setOpen(false));
+
+        const aw = root.getElementById('autow');
+        aw.checked = autoWidth;
+        aw.addEventListener('change', () => {
+            autoWidth = aw.checked;
+            localStorage.setItem(WIDTH_KEY, autoWidth ? '1' : '0');
+            applyWidths();
+        });
         root.querySelectorAll('.actions button').forEach((b) => {
             b.addEventListener('click', () => {
                 if (b.dataset.act === 'all') hidden.clear();
