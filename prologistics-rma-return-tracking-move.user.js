@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics – RMA – Return Tracking pod Closing Notification
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.3.0
-// @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przycisk "Label for client" pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
+// @version      1.4.0
+// @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        none
@@ -31,6 +31,12 @@
 
     // Markery tabeli "Tracking numbers" (packingowej) – ta zostaje na miejscu
     const PACKING_MARKERS = ['Packing date', 'Packed by', '# of shipments', 'Favourite pickup date'];
+
+    // Przyciski przenoszone pod formularz – w tej kolejności
+    const EXTRA_BUTTONS = [
+        { label: 'Label for client', gap: 8 },
+        { label: 'Return prices', gap: 8 }
+    ];
 
     const log = (...args) => console.log(PREFIX, ...args);
     const txt = el => (el && el.textContent) || '';
@@ -189,6 +195,23 @@
         });
     }
 
+    // Przenosi pojedynczy przycisk (razem z jego małym formularzem, jeśli ma) na koniec boxa
+    function moveButton(box, label, gap) {
+        const btn = findButtonByLabel(label);
+        if (!btn) return false;
+        if (box.contains(btn)) return true;
+
+        const form = btn.closest('form');
+        const block = form && !form.contains(box) && txt(form).trim().length < 60 ? form : btn;
+        appendNodes(box, [block], gap);
+        log('Przeniesiono przycisk "' + label + '".');
+        return true;
+    }
+
+    // true = wszystkie przyciski są już w boxie
+    const moveExtraButtons = box =>
+        EXTRA_BUTTONS.map(b => moveButton(box, b.label, b.gap)).every(Boolean);
+
     /* ------------------------------------------------------------------ */
     /*  Kontener docelowy                                                  */
     /* ------------------------------------------------------------------ */
@@ -235,7 +258,9 @@
     /* ------------------------------------------------------------------ */
 
     function run() {
-        if (document.getElementById(BOX_ID)) return true;
+        // Box już stoi – dociągamy tylko przyciski, które mogły dojść później
+        const existing = document.getElementById(BOX_ID);
+        if (existing) return moveExtraButtons(existing);
 
         const closingBtn = findButtonByLabel('Closing Notification');
         if (!closingBtn) return false;
@@ -265,16 +290,11 @@
             log('Nie znalazłam formularza Tracking #/Update – został na swoim miejscu.');
         }
 
-        // 3. Przycisk "Label for client"
-        const labelBtn = findButtonByLabel('Label for client');
-        if (labelBtn && !box.contains(labelBtn)) {
-            const form = labelBtn.closest('form');
-            const labelBlock = form && txt(form).trim().length < 60 ? form : labelBtn;
-            appendNodes(box, [labelBlock], 8);
-        }
+        // 3. Przyciski "Label for client" + "Return prices"
+        const allMoved = moveExtraButtons(box);
 
         log('Gotowe – blok siedzi pod "Closing Notification".');
-        return true;
+        return allMoved;
     }
 
     /* ------------------------------------------------------------------ */
@@ -291,8 +311,11 @@
 
     setTimeout(() => {
         observer.disconnect();
-        if (!document.getElementById(BOX_ID)) {
+        const box = document.getElementById(BOX_ID);
+        if (!box) {
             log('Nie znalazłam wymaganych elementów na tej stronie – skrypt nieaktywny.');
+        } else if (!moveExtraButtons(box)) {
+            log('Nie wszystkie przyciski się pojawiły – brakujące zostały na swoim miejscu.');
         }
     }, 20000);
 })();
