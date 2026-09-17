@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA – Return Tracking pod Closing Notification
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.6.0
+// @version      1.6.1
 // @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" (razem z tabelą cen po kliknięciu) pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -52,6 +52,7 @@
     const RESULT_SECTION_END = ["Liquidators' Prices", 'Liquidators’ Prices', 'Liquidator country'];
     const RESULT_SETTLE_MS = 300;     // odświeżenie kopii po takiej przerwie w zmianach DOM…
     const RESULT_MAX_WAIT_MS = 1000;  // …ale nie rzadziej niż co tyle, nawet gdy DOM ciągle się zmienia
+    const RESULT_EMPTY_GRACE_MS = 500; // kopię chowamy, gdy oryginał jest schowany/pusty przez tyle czasu
     const MIRROR_ATTR = 'data-kr-mirrored';
     const STYLE_ID = 'kr-rma-style';
 
@@ -231,14 +232,16 @@
     /* ------------------------------------------------------------------ */
 
     // Oryginalnych wyników NIE przenosimy (strona lub inne skrypty mogą je przerysowywać,
-    // co dawało mruganie). Zostają na miejscu, ukryte przez CSS, a pod przyciskiem
+    // co dawało mruganie). Zostają na miejscu, wypchnięte poza ekran przez CSS, a pod przyciskiem
     // pokazujemy ich kopię, odświeżaną tylko wtedy, gdy treść faktycznie się zmieni.
+    // Poza ekran, a nie display:none – dzięki temu strona dalej widzi, czy tabela jest
+    // pokazana, i ponowne kliknięcie ją chowa (a my chowamy wtedy kopię).
 
     function ensureStyle() {
         if (document.getElementById(STYLE_ID)) return;
         const st = document.createElement('style');
         st.id = STYLE_ID;
-        st.textContent = '[' + MIRROR_ATTR + '] { display: none !important; }';
+        st.textContent = '[' + MIRROR_ATTR + '] { position: absolute !important; left: -100000px !important; top: 0 !important; }';
         (document.head || document.documentElement).appendChild(st);
     }
 
@@ -249,7 +252,7 @@
         if (mirrors[label]) { mirrors[label].schedule(); return; }
 
         let startEl = null, endEl = null, root = null;
-        let lastSig = null, timer = null, firstPending = 0;
+        let lastSig = null, timer = null, firstPending = 0, emptyTimer = null;
         const observer = new MutationObserver(onMutations);
 
         // Namierza sekcję; wywoływane ponownie, gdy strona przerysuje nagłówki
@@ -338,7 +341,7 @@
                 return;
             }
             if (!inRange(node)) return;
-            if (node.hidden || node.style.display === 'none') return;   // ukryte przez stronę
+            if (!node.getClientRects().length) return;   // schowane przez stronę (samo lub przodek)
             if (!t.trim() && !node.querySelector('table, img')) return;
             out.push(node);
         }
@@ -347,13 +350,31 @@
             firstPending = 0;
             const out = hideOriginals();
 
-            // Pusto (np. strona akurat przerysowuje) – zostawiamy ostatnią kopię, bez mrugania
-            if (!out.length) return;
+            if (!out.length) {
+                // Pusto: albo strona schowała wyniki (ponowne kliknięcie), albo akurat przerysowuje.
+                // Kopię chowamy dopiero, gdy pusto utrzyma się chwilę – bez mrugania.
+                if (lastSig !== null && !emptyTimer) {
+                    emptyTimer = setTimeout(() => {
+                        emptyTimer = null;
+                        if (!currentNodes().length) clearMirror();
+                    }, RESULT_EMPTY_GRACE_MS);
+                }
+                return;
+            }
+            clearTimeout(emptyTimer);
+            emptyTimer = null;
 
             const sig = out.map(n => n.tagName + ':' + n.innerHTML).join('\u0001');
             if (sig === lastSig) return;
             lastSig = sig;
             render(out);
+        }
+
+        function clearMirror() {
+            const wrap = document.querySelector('[data-kr-results="' + label + '"]');
+            if (wrap) wrap.replaceChildren();
+            lastSig = null;
+            log('Wyniki "' + label + '" schowane – chowam kopię.');
         }
 
         function render(nodes) {
