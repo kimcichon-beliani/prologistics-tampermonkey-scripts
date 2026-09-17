@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA – Return Tracking pod Closing Notification
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.4.0
+// @version      1.4.1
 // @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -32,11 +32,20 @@
     // Markery tabeli "Tracking numbers" (packingowej) – ta zostaje na miejscu
     const PACKING_MARKERS = ['Packing date', 'Packed by', '# of shipments', 'Favourite pickup date'];
 
-    // Przyciski przenoszone pod formularz – w tej kolejności
+    // Przyciski pod formularzem – w tej kolejności
+    //  mode 'move'  – przenosimy oryginalny przycisk
+    //  mode 'proxy' – oryginał zostaje na swoim miejscu (jego skrypt strony działa względem
+    //                 pozycji w DOM), a pod formularzem stawiamy przycisk, który go "klika"
     const EXTRA_BUTTONS = [
-        { label: 'Label for client', gap: 8 },
-        { label: 'Return prices', gap: 8 }
+        { label: 'Label for client', gap: 8, mode: 'move' },
+        { label: 'Return prices', gap: 8, mode: 'proxy' }
     ];
+
+    const PROXY_ATTR = 'data-kr-proxy';
+
+    // Ukrywać oryginał przycisku-proxy? Jeśli po kliknięciu okienko/wyniki pojawiają się
+    // w złym miejscu (np. w lewym górnym rogu), ustaw na false.
+    const HIDE_PROXIED_ORIGINAL = true;
 
     const log = (...args) => console.log(PREFIX, ...args);
     const txt = el => (el && el.textContent) || '';
@@ -53,6 +62,7 @@
 
     function findButtonsByLabel(label) {
         return [...document.querySelectorAll('input[type="button"], input[type="submit"], button, a')]
+            .filter(el => !el.hasAttribute(PROXY_ATTR))
             .filter(el => (el.value || el.textContent || '').trim() === label);
     }
 
@@ -208,9 +218,53 @@
         return true;
     }
 
+    // Przycisk-pośrednik: wygląda jak oryginał, a przy kliknięciu wywołuje oryginał w jego miejscu
+    function proxyButton(box, label, gap) {
+        const existing = box.querySelector('[' + PROXY_ATTR + '="' + label + '"]');
+        const original = findButtonByLabel(label);
+
+        if (existing) {
+            // strona mogła przerysować sekcję i wstawić nowy oryginał – ukryj go ponownie
+            if (original && HIDE_PROXIED_ORIGINAL) original.style.display = 'none';
+            return true;
+        }
+        if (!original) return false;
+
+        const isInput = original.tagName === 'INPUT';
+        const proxy = document.createElement(isInput ? 'input' : 'button');
+        proxy.type = 'button';
+        if (isInput) proxy.value = label; else proxy.textContent = label;
+        if (original.className) proxy.className = original.className;
+        proxy.setAttribute(PROXY_ATTR, label);
+
+        proxy.addEventListener('click', e => {
+            e.preventDefault();
+            // szukamy oryginału przy każdym kliknięciu – strona mogła go podmienić
+            const target = findButtonByLabel(label);
+            if (!target) {
+                log('Nie znalazłam oryginalnego przycisku "' + label + '".');
+                return;
+            }
+            target.click();
+            if (HIDE_PROXIED_ORIGINAL) {
+                setTimeout(() => {
+                    const again = findButtonByLabel(label);
+                    if (again) again.style.display = 'none';
+                }, 500);
+            }
+        });
+
+        appendNodes(box, [proxy], gap);
+        if (HIDE_PROXIED_ORIGINAL) original.style.display = 'none';
+        log('Dodano przycisk-pośrednik "' + label + '".');
+        return true;
+    }
+
     // true = wszystkie przyciski są już w boxie
     const moveExtraButtons = box =>
-        EXTRA_BUTTONS.map(b => moveButton(box, b.label, b.gap)).every(Boolean);
+        EXTRA_BUTTONS
+            .map(b => (b.mode === 'proxy' ? proxyButton : moveButton)(box, b.label, b.gap))
+            .every(Boolean);
 
     /* ------------------------------------------------------------------ */
     /*  Kontener docelowy                                                  */
