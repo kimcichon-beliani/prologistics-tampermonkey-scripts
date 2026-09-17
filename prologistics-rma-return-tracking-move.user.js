@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics – RMA – Return Tracking pod Closing Notification
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.4.1
-// @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
+// @version      1.5.0
+// @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" (razem z tabelą cen po kliknięciu) pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        none
@@ -46,6 +46,12 @@
     // Ukrywać oryginał przycisku-proxy? Jeśli po kliknięciu okienko/wyniki pojawiają się
     // w złym miejscu (np. w lewym górnym rogu), ustaw na false.
     const HIDE_PROXIED_ORIGINAL = true;
+
+    // Sekcja, w której strona wstawia wyniki po kliknięciu "Return prices"
+    const RESULT_SECTION_START = 'Real Return Shipping Prices';
+    const RESULT_SECTION_END = ["Liquidators' Prices", 'Liquidators’ Prices', 'Liquidator country'];
+    const RESULT_SETTLE_MS = 400;     // ile czekamy na "uspokojenie" DOM po wstawieniu wyników
+    const RESULT_TIMEOUT_MS = 15000;  // ile maksymalnie czekamy na wyniki
 
     const log = (...args) => console.log(PREFIX, ...args);
     const txt = el => (el && el.textContent) || '';
@@ -218,6 +224,125 @@
         return true;
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  Przechwytywanie wyników kliknięcia (tabela cen)                    */
+    /* ------------------------------------------------------------------ */
+
+    const captures = {};
+
+    // Obserwuje, co strona wstawi w sekcji "Real Return Shipping Prices" po kliknięciu,
+    // i przenosi to pod przycisk-pośrednik (poprzednie wyniki są podmieniane)
+    function captureResults(proxy, label, trigger) {
+        if (captures[label]) captures[label].stop();
+
+        const startEl = findSmallestByText(RESULT_SECTION_START);
+        if (!startEl) {
+            log('Nie znalazłam sekcji "' + RESULT_SECTION_START + '" – wyniki zostaną na swoim miejscu.');
+            trigger();
+            return;
+        }
+        const endEl = RESULT_SECTION_END.map(t => findSmallestByText(t)).find(Boolean) || null;
+        const box = document.getElementById(BOX_ID);
+        const found = new Set();
+        let settleTimer = null;
+        let timeoutTimer = null;
+        let observer = null;
+
+        const inRange = node =>
+            (startEl.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+            (!endEl || ((node.compareDocumentPosition(endEl) & Node.DOCUMENT_POSITION_FOLLOWING) && !node.contains(endEl)));
+
+        // węzły, których nie wolno przenieść w całości (nagłówki sekcji, oryginalny przycisk, nasz box)
+        const isBlocked = node => {
+            const t = txt(node);
+            if (t.includes(RESULT_SECTION_START)) return true;
+            if (RESULT_SECTION_END.some(e => t.includes(e))) return true;
+            if (box && node.contains(box)) return true;
+            return findButtonsByLabel(label).some(b => node.contains(b));
+        };
+
+        function collect(node) {
+            if (!node || node.nodeType !== 1) return;
+            if (['SCRIPT', 'STYLE', 'LINK', 'META'].includes(node.tagName)) return;
+            if (box && box.contains(node)) return;
+
+            if (isBlocked(node)) {
+                [...node.children].forEach(collect);
+                return;
+            }
+            if (!inRange(node)) return;
+            if (!txt(node).trim() && !node.querySelector('table, img')) return;
+
+            // pojedyncze wiersze – jeśli się da, bierzemy całą tabelę
+            if (['TR', 'TBODY', 'THEAD', 'TD', 'TH'].includes(node.tagName)) {
+                const table = node.closest('table');
+                if (table && !isBlocked(table) && inRange(table)) node = table;
+            }
+
+            found.add(node);
+            clearTimeout(settleTimer);
+            settleTimer = setTimeout(finish, RESULT_SETTLE_MS);
+        }
+
+        function stop() {
+            if (observer) observer.disconnect();
+            clearTimeout(settleTimer);
+            clearTimeout(timeoutTimer);
+            delete captures[label];
+        }
+
+        function finish() {
+            stop();
+
+            let nodes = [...found].filter(n => n.isConnected && n.getClientRects().length);
+            nodes = nodes.filter(n => !nodes.some(o => o !== n && o.contains(n)));
+            nodes.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+            if (!nodes.length) return;
+
+            let wrap = document.querySelector('[data-kr-results="' + label + '"]');
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.setAttribute('data-kr-results', label);
+                wrap.style.cssText = 'margin-top: 6px; overflow: visible';
+                (proxy.parentElement || proxy).insertAdjacentElement('afterend', wrap);
+            }
+            wrap.innerHTML = '';
+            appendNodes(wrap, nodes, 0);
+            nodes.forEach(normalize);
+            log('Przeniesiono wyniki "' + label + '" pod przycisk (' + nodes.length + ' węzeł/y).');
+        }
+
+        observer = new MutationObserver(muts => {
+            muts.forEach(m => {
+                if (m.type === 'childList') {
+                    m.addedNodes.forEach(collect);
+                } else if (m.target.nodeType === 1 &&
+                           (m.target.tagName === 'TABLE' || m.target.querySelector('table'))) {
+                    // ukryta wcześniej tabela, która po kliknięciu stała się widoczna
+                    collect(m.target);
+                }
+            });
+        });
+
+        captures[label] = { stop };
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class', 'hidden']
+        });
+
+        timeoutTimer = setTimeout(() => {
+            if (found.size) finish();
+            else {
+                stop();
+                log('Po kliknięciu "' + label + '" nie pojawiły się nowe wyniki do przeniesienia.');
+            }
+        }, RESULT_TIMEOUT_MS);
+
+        trigger();
+    }
+
     // Przycisk-pośrednik: wygląda jak oryginał, a przy kliknięciu wywołuje oryginał w jego miejscu
     function proxyButton(box, label, gap) {
         const existing = box.querySelector('[' + PROXY_ATTR + '="' + label + '"]');
@@ -245,7 +370,7 @@
                 log('Nie znalazłam oryginalnego przycisku "' + label + '".');
                 return;
             }
-            target.click();
+            captureResults(proxy, label, () => target.click());
             if (HIDE_PROXIED_ORIGINAL) {
                 setTimeout(() => {
                     const again = findButtonByLabel(label);
