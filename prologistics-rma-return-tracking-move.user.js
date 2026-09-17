@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA – Return Tracking pod Closing Notification
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.5.0
+// @version      1.6.0
 // @description  Przenosi tabelę "Return tracking numbers", formularz Tracking #/Update oraz przyciski "Label for client" i "Return prices" (razem z tabelą cen po kliknięciu) pod przycisk "Closing Notification" na rma.php – bez tabeli "Tracking numbers" i bez "New driver task"
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -50,8 +50,10 @@
     // Sekcja, w której strona wstawia wyniki po kliknięciu "Return prices"
     const RESULT_SECTION_START = 'Real Return Shipping Prices';
     const RESULT_SECTION_END = ["Liquidators' Prices", 'Liquidators’ Prices', 'Liquidator country'];
-    const RESULT_SETTLE_MS = 400;     // ile czekamy na "uspokojenie" DOM po wstawieniu wyników
-    const RESULT_TIMEOUT_MS = 15000;  // ile maksymalnie czekamy na wyniki
+    const RESULT_SETTLE_MS = 300;     // odświeżenie kopii po takiej przerwie w zmianach DOM…
+    const RESULT_MAX_WAIT_MS = 1000;  // …ale nie rzadziej niż co tyle, nawet gdy DOM ciągle się zmienia
+    const MIRROR_ATTR = 'data-kr-mirrored';
+    const STYLE_ID = 'kr-rma-style';
 
     const log = (...args) => console.log(PREFIX, ...args);
     const txt = el => (el && el.textContent) || '';
@@ -225,80 +227,136 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Przechwytywanie wyników kliknięcia (tabela cen)                    */
+    /*  Lustro wyników kliknięcia (tabela cen)                             */
     /* ------------------------------------------------------------------ */
 
-    const captures = {};
+    // Oryginalnych wyników NIE przenosimy (strona lub inne skrypty mogą je przerysowywać,
+    // co dawało mruganie). Zostają na miejscu, ukryte przez CSS, a pod przyciskiem
+    // pokazujemy ich kopię, odświeżaną tylko wtedy, gdy treść faktycznie się zmieni.
 
-    // Obserwuje, co strona wstawi w sekcji "Real Return Shipping Prices" po kliknięciu,
-    // i przenosi to pod przycisk-pośrednik (poprzednie wyniki są podmieniane)
-    function captureResults(proxy, label, trigger) {
-        if (captures[label]) captures[label].stop();
+    function ensureStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+        const st = document.createElement('style');
+        st.id = STYLE_ID;
+        st.textContent = '[' + MIRROR_ATTR + '] { display: none !important; }';
+        (document.head || document.documentElement).appendChild(st);
+    }
 
-        const startEl = findSmallestByText(RESULT_SECTION_START);
-        if (!startEl) {
-            log('Nie znalazłam sekcji "' + RESULT_SECTION_START + '" – wyniki zostaną na swoim miejscu.');
-            trigger();
-            return;
+    const ROW_TAGS = ['TR', 'TBODY', 'THEAD', 'TD', 'TH'];
+    const mirrors = {};
+
+    function startMirror(proxy, label) {
+        if (mirrors[label]) { mirrors[label].schedule(); return; }
+
+        let startEl = null, endEl = null, root = null;
+        let lastSig = null, timer = null, firstPending = 0;
+        const observer = new MutationObserver(onMutations);
+
+        // Namierza sekcję; wywoływane ponownie, gdy strona przerysuje nagłówki
+        function locate() {
+            startEl = findSmallestByText(RESULT_SECTION_START);
+            endEl = RESULT_SECTION_END.map(t => findSmallestByText(t)).find(Boolean) || null;
+            root = null;
+            if (startEl && endEl) {
+                root = startEl.parentElement;
+                while (root && !root.contains(endEl)) root = root.parentElement;
+            }
+            observer.disconnect();
+            if (!root) return false;
+            observer.observe(root, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['style', 'class', 'hidden']
+            });
+            return true;
         }
-        const endEl = RESULT_SECTION_END.map(t => findSmallestByText(t)).find(Boolean) || null;
-        const box = document.getElementById(BOX_ID);
-        const found = new Set();
-        let settleTimer = null;
-        let timeoutTimer = null;
-        let observer = null;
+
+        const box = () => document.getElementById(BOX_ID);
 
         const inRange = node =>
             (startEl.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) &&
-            (!endEl || ((node.compareDocumentPosition(endEl) & Node.DOCUMENT_POSITION_FOLLOWING) && !node.contains(endEl)));
+            (node.compareDocumentPosition(endEl) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+            !node.contains(endEl);
 
-        // węzły, których nie wolno przenieść w całości (nagłówki sekcji, oryginalny przycisk, nasz box)
-        const isBlocked = node => {
+        function onMutations(muts) {
+            const b = box();
+            const relevant = muts.some(m => {
+                const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+                if (!el || (b && b.contains(el))) return false;
+                if (!startEl.isConnected || !endEl.isConnected) return true;
+                return el.contains(startEl) || el.contains(endEl) || inRange(el);
+            });
+            if (!relevant) return;
+            // ukrywamy nowe oryginały od razu (callback observera działa przed malowaniem),
+            // żeby nie mignęły w starym miejscu; samą kopię odświeżamy z opóźnieniem
+            hideOriginals();
+            schedule();
+        }
+
+        function currentNodes() {
+            if (!startEl || !startEl.isConnected || !endEl || !endEl.isConnected) {
+                if (!locate()) return [];
+            }
+            const b = box();
+            const out = [];
+            collect(root, out, findButtonsByLabel(label), b);
+            return out;
+        }
+
+        function hideOriginals(nodes = currentNodes()) {
+            if (!nodes.length) return nodes;
+            ensureStyle();
+            nodes.forEach(n => { if (!n.hasAttribute(MIRROR_ATTR)) n.setAttribute(MIRROR_ATTR, ''); });
+            return nodes;
+        }
+
+        function schedule() {
+            const now = Date.now();
+            if (!firstPending) firstPending = now;
+            clearTimeout(timer);
+            const wait = Math.max(0, Math.min(RESULT_SETTLE_MS, firstPending + RESULT_MAX_WAIT_MS - now));
+            timer = setTimeout(refresh, wait);
+        }
+
+        // Zbiera aktualne węzły wyników między nagłówkami sekcji
+        function collect(node, out, originals, b) {
+            if (node.nodeType !== 1) return;
+            if (['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT'].includes(node.tagName)) return;
+            if (b && b.contains(node)) return;
+
             const t = txt(node);
-            if (t.includes(RESULT_SECTION_START)) return true;
-            if (RESULT_SECTION_END.some(e => t.includes(e))) return true;
-            if (box && node.contains(box)) return true;
-            return findButtonsByLabel(label).some(b => node.contains(b));
-        };
+            const blocked =
+                t.includes(RESULT_SECTION_START) ||
+                RESULT_SECTION_END.some(e => t.includes(e)) ||
+                (b && node.contains(b)) ||
+                originals.some(o => node.contains(o));
 
-        function collect(node) {
-            if (!node || node.nodeType !== 1) return;
-            if (['SCRIPT', 'STYLE', 'LINK', 'META'].includes(node.tagName)) return;
-            if (box && box.contains(node)) return;
-
-            if (isBlocked(node)) {
-                [...node.children].forEach(collect);
+            if (blocked) {
+                [...node.children].forEach(c => collect(c, out, originals, b));
                 return;
             }
             if (!inRange(node)) return;
-            if (!txt(node).trim() && !node.querySelector('table, img')) return;
-
-            // pojedyncze wiersze – jeśli się da, bierzemy całą tabelę
-            if (['TR', 'TBODY', 'THEAD', 'TD', 'TH'].includes(node.tagName)) {
-                const table = node.closest('table');
-                if (table && !isBlocked(table) && inRange(table)) node = table;
-            }
-
-            found.add(node);
-            clearTimeout(settleTimer);
-            settleTimer = setTimeout(finish, RESULT_SETTLE_MS);
+            if (node.hidden || node.style.display === 'none') return;   // ukryte przez stronę
+            if (!t.trim() && !node.querySelector('table, img')) return;
+            out.push(node);
         }
 
-        function stop() {
-            if (observer) observer.disconnect();
-            clearTimeout(settleTimer);
-            clearTimeout(timeoutTimer);
-            delete captures[label];
+        function refresh() {
+            firstPending = 0;
+            const out = hideOriginals();
+
+            // Pusto (np. strona akurat przerysowuje) – zostawiamy ostatnią kopię, bez mrugania
+            if (!out.length) return;
+
+            const sig = out.map(n => n.tagName + ':' + n.innerHTML).join('\u0001');
+            if (sig === lastSig) return;
+            lastSig = sig;
+            render(out);
         }
 
-        function finish() {
-            stop();
-
-            let nodes = [...found].filter(n => n.isConnected && n.getClientRects().length);
-            nodes = nodes.filter(n => !nodes.some(o => o !== n && o.contains(n)));
-            nodes.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
-            if (!nodes.length) return;
-
+        function render(nodes) {
             let wrap = document.querySelector('[data-kr-results="' + label + '"]');
             if (!wrap) {
                 wrap = document.createElement('div');
@@ -306,41 +364,58 @@
                 wrap.style.cssText = 'margin-top: 6px; overflow: visible';
                 (proxy.parentElement || proxy).insertAdjacentElement('afterend', wrap);
             }
-            wrap.innerHTML = '';
-            appendNodes(wrap, nodes, 0);
-            nodes.forEach(normalize);
-            log('Przeniesiono wyniki "' + label + '" pod przycisk (' + nodes.length + ' węzeł/y).');
-        }
 
-        observer = new MutationObserver(muts => {
-            muts.forEach(m => {
-                if (m.type === 'childList') {
-                    m.addedNodes.forEach(collect);
-                } else if (m.target.nodeType === 1 &&
-                           (m.target.tagName === 'TABLE' || m.target.querySelector('table'))) {
-                    // ukryta wcześniej tabela, która po kliknięciu stała się widoczna
-                    collect(m.target);
+            const frag = document.createDocumentFragment();
+            let rowTable = null;
+
+            nodes.forEach(n => {
+                const clone = n.cloneNode(true);
+                // bez id (żeby skrypty strony nie trafiały w kopię) i bez naszego znacznika ukrycia
+                [clone, ...clone.querySelectorAll('[id], [' + MIRROR_ATTR + ']')].forEach(el => {
+                    el.removeAttribute('id');
+                    el.removeAttribute(MIRROR_ATTR);
+                });
+
+                if (!ROW_TAGS.includes(n.tagName)) {
+                    rowTable = null;
+                    frag.appendChild(clone);
+                    return;
+                }
+
+                // wiersze bez własnej tabeli – składamy je w nową tabelę z atrybutami oryginału
+                if (!rowTable) {
+                    rowTable = document.createElement('table');
+                    const src = n.closest('table');
+                    if (src) {
+                        ['border', 'cellpadding', 'cellspacing', 'class', 'style'].forEach(a => {
+                            if (src.hasAttribute(a)) rowTable.setAttribute(a, src.getAttribute(a));
+                        });
+                    }
+                    rowTable.appendChild(document.createElement('tbody'));
+                    frag.appendChild(rowTable);
+                }
+                if (n.tagName === 'TBODY' || n.tagName === 'THEAD') {
+                    rowTable.appendChild(clone);
+                } else if (n.tagName === 'TD' || n.tagName === 'TH') {
+                    const tr = document.createElement('tr');
+                    tr.appendChild(clone);
+                    rowTable.tBodies[0].appendChild(tr);
+                } else {
+                    rowTable.tBodies[0].appendChild(clone);
                 }
             });
-        });
 
-        captures[label] = { stop };
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['style', 'class', 'hidden']
-        });
+            wrap.replaceChildren(frag);
+            [...wrap.children].forEach(normalize);
+            log('Zaktualizowano kopię wyników "' + label + '" pod przyciskiem.');
+        }
 
-        timeoutTimer = setTimeout(() => {
-            if (found.size) finish();
-            else {
-                stop();
-                log('Po kliknięciu "' + label + '" nie pojawiły się nowe wyniki do przeniesienia.');
-            }
-        }, RESULT_TIMEOUT_MS);
-
-        trigger();
+        if (!locate()) {
+            log('Nie znalazłam sekcji "' + RESULT_SECTION_START + '" – wyniki zostaną na swoim miejscu.');
+            return;
+        }
+        mirrors[label] = { schedule };
+        schedule();
     }
 
     // Przycisk-pośrednik: wygląda jak oryginał, a przy kliknięciu wywołuje oryginał w jego miejscu
@@ -370,7 +445,8 @@
                 log('Nie znalazłam oryginalnego przycisku "' + label + '".');
                 return;
             }
-            captureResults(proxy, label, () => target.click());
+            startMirror(proxy, label);
+            target.click();
             if (HIDE_PROXIED_ORIGINAL) {
                 setTimeout(() => {
                     const again = findButtonByLabel(label);
