@@ -4,7 +4,7 @@
 // @version      1.0.0
 // @description  Filtruje wiersze arkusza (view only) po kolumnie B "Deal Type" – pokazuje tylko cashback w osobnym panelu
 // @author       kimrioter
-// @match        https://docs.google.com/spreadsheets/d/1imrMx7Yj60T8UEuFPzriVF4WgopUWhpFpVp0pKt0WJM/*
+// @match        https://docs.google.com/spreadsheets/d/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
 // @grant        GM_addStyle
