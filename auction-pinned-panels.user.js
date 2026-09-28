@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Auction Pinned Panels (Customer / Articles / Payments)
 // @namespace    kimrioter
-// @version      1.5.1
+// @version      1.5.2
 // @description  Przypięte panele na auction.php: dane klienta (Shipping / Billing), artykuły z tabeli Articles oraz kwoty – cena, dostawa, COD, bonusy, ostrzeżenie przy cenie 0 / zamówieniu z ticketu. Wygląd jak w skrypcie "RMA Auftrag # Copy + Pinned Panels".
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -39,11 +39,11 @@
        ============================================================ */
     const style = document.createElement('style');
     style.textContent = `
-        /* --- kontener przypiętych panelów: LEWA strona, jedzie razem ze stroną --- */
+        /* --- kontener przypiętych panelów: PRAWA strona, obok przełącznika trybu nocnego --- */
         #${STACK_ID} {
             position: fixed;
             top: 37px;                /* 25 px niżej, żeby nie zasłaniać paska nad stroną */
-            left: 60px;               /* odsunięte w prawo, żeby nie zasłaniać hamburgera */
+            right: 90px;              /* odsunięte w lewo, żeby nie zasłaniać przełącznika trybu nocnego */
             z-index: 99999;
             width: 300px;
             display: flex;
