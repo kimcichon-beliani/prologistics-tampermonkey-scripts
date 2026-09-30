@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.6.2
-// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu, nr Auftrag i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
+// @version      2.6.3
+// @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu i nr Auftrag (oba z przyciskiem copy) i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @grant        GM_setClipboard
@@ -550,19 +550,19 @@
        1) PRZYCISK COPY PRZY AUFTRAG #
        ============================================================ */
 
-    function buildCopyButton(getNumber) {
+    function buildCopyButton(getNumber, title) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'kr-copy-btn';
         btn.textContent = 'copy';
-        btn.title = 'Kopiuj numer Auftrag (bez pozycji)';
+        btn.title = title || 'Kopiuj numer Auftrag (bez pozycji)';
 
         btn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             const number = getNumber();
             if (!number) {
-                console.warn(LOG_PREFIX, 'Nie udało się odczytać numeru Auftrag.');
+                console.warn(LOG_PREFIX, 'Nie udało się odczytać numeru do skopiowania.');
                 return;
             }
             copyToClipboard(number).then(() => {
@@ -737,7 +737,16 @@
         }
 
         const ticket = findTicketNumber();
-        if (ticket) rows.unshift({ label: 'Ticket', text: '#' + ticket, fullWidth: true });
+        if (ticket) {
+            rows.unshift({
+                label: 'Ticket',
+                text: '#' + ticket,
+                copyValue: String(ticket),          // kopiujemy sam numer, bez "Ticket #"
+                copyTitle: 'Kopiuj numer ticketu',
+                copyable: true,
+                fullWidth: true
+            });
+        }
 
         // sygnatura treści – panel przebudowujemy TYLKO gdy dane faktycznie się zmieniły.
         // Bez tego licznik czasu w menu bocznym generował mutacje DOM co sekundę,
@@ -759,7 +768,7 @@
         body.className = 'kr-panel-body';
         const table = document.createElement('table');
 
-        rows.forEach(({ label, cell, text, fullWidth, href, copyable }) => {
+        rows.forEach(({ label, cell, text, fullWidth, href, copyable, copyValue, copyTitle }) => {
             const tr = document.createElement('tr');
 
             // wiersz na całą szerokość (nr ticketu / nr Auftrag) – wyśrodkowany
@@ -781,7 +790,10 @@
                 }
 
                 if (copyable) {
-                    td.appendChild(buildCopyButton(() => extractAuftragNumber(text) || text));
+                    const getValue = copyValue
+                        ? () => copyValue
+                        : () => extractAuftragNumber(text) || text;
+                    td.appendChild(buildCopyButton(getValue, copyTitle));
                 }
 
                 tr.appendChild(td);
