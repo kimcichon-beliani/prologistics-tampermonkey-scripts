@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – ładniejszy Board (issue logs)
 // @namespace    kimrioter
-// @version      1.0.1
+// @version      1.0.2
 // @description  Czytelniejsze kafelki i kolumny w widoku Board na /react/logs/issue_logs/
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs*
@@ -270,7 +270,17 @@
             text-align: left !important;
             justify-content: flex-start !important;
             flex-direction: row !important;
-            overflow: hidden !important;
+            /* lista kart to flex-kolumna o stałej wysokości – kafelek
+               nie może się w niej ściskać, bo ucina tytuł i stopkę */
+            flex-shrink: 0 !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+        /* gdy kart jest więcej niż miejsca – scroll w kolumnie zamiast ucinania */
+        [data-rbd-droppable-id="all-boards"] [class*="column-module__tasksList"] {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
         }
         /* reset: strona pozycjonuje część elementów absolutnie / flexem */
         [data-tm-card] > [data-tm-role] {
