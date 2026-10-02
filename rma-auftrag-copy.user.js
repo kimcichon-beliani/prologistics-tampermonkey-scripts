@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – RMA Auftrag # Copy + Pinned Panels
 // @namespace    kimrioter
-// @version      2.6.3
+// @version      2.6.4
 // @description  1) Przycisk "copy" obok numeru Auftrag. 2) Przypięty panel z nr ticketu i nr Auftrag (oba z przyciskiem copy) i danymi klienta (przełącznik Shipping / Billing). 3) Przypięty panel z wymiarami produktów i najtańszą opcją wysyłki. 4) Unowocześniony wygląd przycisków na całej stronie.
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -741,8 +741,8 @@
             rows.unshift({
                 label: 'Ticket',
                 text: '#' + ticket,
-                copyValue: String(ticket),          // kopiujemy sam numer, bez "Ticket #"
-                copyTitle: 'Kopiuj numer ticketu',
+                copyValue: 'Ticket #' + ticket,     // kopiujemy pełną nazwę, np. "Ticket #698066"
+                copyTitle: 'Kopiuj "Ticket #numer"',
                 copyable: true,
                 fullWidth: true
             });
