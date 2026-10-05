@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Filtrowanie listy Shipping method + Country — Ticket
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Ogranicza listę "Shipping method #" do wybranych spedycji, z dodatkowym filtrem po kraju
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php?*
@@ -47,6 +47,9 @@
         'PL: DHL Parcel Point (PL)': 'PL',
         'PL: GLS (PL)': 'PL',
         'PL: GLS International (PL)': 'PL',
+        'PL: InPost': 'PL',
+        'PL: InPost (Pickup Point)': 'PL',
+        'PL: InPost International (Pickup Point': 'PL',
         'PL: Rohlig Suus (Paket)': 'PL',
         'PL: Rohlig Suus (Palette)': 'PL',
         'PL: Zadbano': 'PL',
