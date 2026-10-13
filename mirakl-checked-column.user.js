@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mirakl – "Checked?" przy zamówieniach
 // @namespace    beliani
-// @version      1.8
+// @version      1.9
 // @description  Dodaje checkbox "Checked?" po lewej stronie kolumny Order ID na listach zamówień w Mirakl i zapamiętuje zaznaczenia po odświeżeniu
 // @match        *://*/mmp/shop/*
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/mirakl-checked-column.user.js
@@ -66,7 +66,21 @@
     }
 
     // ---------- wiersze (ciało tabeli) ----------
+    // link do zamówienia: /mmp/shop/order/<numer> (działa u każdego partnera Mirakl,
+    // niezależnie od formatu numeru)
+    const ORDER_LINK_RE = /\/mmp\/shop\/order\/([^/?#]+)\/?(?:[?#].*)?$/;
+
+    function orderLinkOf(row) {
+        for (const a of row.querySelectorAll('a[href]')) {
+            const m = (a.getAttribute('href') || '').match(ORDER_LINK_RE);
+            if (m) return { a, id: decodeURIComponent(m[1]) };
+        }
+        return null;
+    }
+
     function getOrderId(row) {
+        const l = orderLinkOf(row);
+        if (l) return l.id;
         if (row.id && ORDER_ID_FROM_ROW_ID.test(row.id)) return row.id;
         const m = row.textContent.match(ORDER_ID_FROM_TEXT);
         return m ? m[0] : null;
@@ -77,10 +91,10 @@
     }
 
     function findOrderCell(row) {
-        const link = row.querySelector('a[href*="/order/"]');
-        if (link) {
-            const td = link.closest('td');
-            if (td) return { td, link };
+        const l = orderLinkOf(row);
+        if (l) {
+            const td = l.a.closest('td, [role="cell"], [role="gridcell"]');
+            if (td && row.contains(td)) return { td, link: l.a };
         }
         const td = row.children[1] || row.children[0];
         return td ? { td, link: null } : null;
@@ -206,11 +220,22 @@
 
     // ---------- główna pętla ----------
     function process() {
-        const rows = Array.from(document.querySelectorAll('table tbody tr')).filter((r) => getOrderId(r));
+        const rows = Array.from(document.querySelectorAll('tbody tr, [role="row"]')).filter((r) => getOrderId(r));
         if (!rows.length) return;
 
-        addHeaderLabel();
-        rows.forEach(addCheckbox);
+        rows.forEach((row) => {
+            try {
+                addCheckbox(row);
+            } catch (e) {
+                log('błąd przy dodawaniu checkboxa', e);
+            }
+        });
+
+        try {
+            addHeaderLabel();
+        } catch (e) {
+            log('błąd przy dodawaniu nagłówka', e);
+        }
     }
 
     // Mirakl to SPA – tabela jest przerysowywana, więc obserwujemy zmiany w DOM
@@ -223,4 +248,12 @@
 
     log('skrypt uruchomiony na', location.href);
     process();
+
+    setTimeout(() => {
+        if (document.querySelector('[data-kim-checked]')) return;
+        log(
+            'po 3 s brak checkboxów. Wiersze tbody tr:', document.querySelectorAll('tbody tr').length,
+            '| linki do /mmp/shop/order/:', document.querySelectorAll('a[href*="/mmp/shop/order/"]').length
+        );
+    }, 3000);
 })();
