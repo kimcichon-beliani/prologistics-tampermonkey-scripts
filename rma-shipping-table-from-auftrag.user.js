@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Prologistics RMA - Shipping Table from Auftrag
+// @name         Prologistics RMA - Pallet Dimensions from Auftrag
 // @namespace    kimcichon-beliani
-// @version      1.3
+// @version      1.4
 // @author       kimrioter
-// @description  Dodaje button na stronie RMA, który pobiera tabelę shipping-costs-0 z auction.php (Auftrag, przez ukryty iframe) i wyświetla ją w ticketcie
+// @description  Dodaje button "Pallet Dimensions" na stronie RMA, który pobiera z Auftragu (auction.php, przez ukryty iframe) czerwoną tabelę wysyłki paletowej (shipping-costs-last_label_full_0). Jeśli jej nie ma - pokazuje "Pallets not found"
 // @match        https://www.prologistics.info/rma.php*
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/rma-shipping-table-from-auftrag.user.js
@@ -14,10 +14,16 @@
     'use strict';
 
     const LOG = '[TM script by kimrioter]';
-    const TABLE_SELECTOR = 'table.shipping-costs-0';
-    const TIMEOUT_MS = 25000;    // maksymalny czas oczekiwania na tabelę
+
+    // czerwona tabela "Shipping prices for sending all cartons together"
+    const PALLET_SELECTOR = 'table[class*="shipping-costs-last_label_full"]';
+    // dowolna tabela cen wysyłki - służy do wykrycia, że Auftrag skończył doczytywać ceny
+    const ANY_SHIPPING_SELECTOR = 'table[class*="shipping-costs"]';
+
+    const TIMEOUT_MS = 30000;     // maksymalny czas oczekiwania na Auftrag
     const POLL_MS = 300;
-    const CLICK_AFTER_MS = 2000; // jeśli tabeli nie ma po tym czasie, klikamy "Real shipping prices"
+    const CLICK_AFTER_MS = 2000;  // jeśli ceny się nie doczytały, klikamy "Real shipping prices"
+    const GRACE_MS = 3000;        // ile czekamy na tabelę paletową po pojawieniu się zwykłych cen
 
     const params = new URLSearchParams(window.location.search);
     const number = params.get('number');
@@ -45,7 +51,7 @@
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = 'Shipping Table from Auftrag';
+    btn.textContent = 'Pallet Dimensions';
     btn.style.cssText = 'padding:6px 12px; cursor:pointer; font-weight:bold; background:#750000; color:#fff; border:none; border-radius:3px;';
 
     const panel = document.createElement('div');
@@ -64,8 +70,9 @@
         console.warn(`${LOG} Nie znaleziono "Attached documents" - button dodany na górze strony.`);
     }
 
-    // --- pobranie tabeli przez ukryty iframe ---
-    function fetchTableViaIframe() {
+    // --- pobranie tabeli paletowej przez ukryty iframe ---
+    // resolve(tablica klonów) gdy znaleziono, resolve([]) gdy Auftrag się załadował, a tabeli nie ma
+    function fetchPalletTablesViaIframe() {
         return new Promise((resolve, reject) => {
             const iframe = document.createElement('iframe');
             iframe.src = auctionUrl;
@@ -75,6 +82,7 @@
             let timer = null;
             const startedAt = Date.now();
             let clicked = false;
+            let readySince = null; // kiedy pojawiły się jakiekolwiek tabele cen wysyłki
 
             const cleanup = () => {
                 finished = true;
@@ -89,15 +97,25 @@
                         const doc = iframe.contentDocument;
                         if (!doc) return;
 
-                        const table = doc.querySelector(TABLE_SELECTOR);
-                        if (table && table.querySelector('tbody tr')) {
-                            const clone = table.cloneNode(true);
+                        // 1) tabela paletowa jest -> gotowe
+                        const pallets = doc.querySelectorAll(PALLET_SELECTOR);
+                        if (pallets.length && pallets[0].querySelector('tbody tr')) {
+                            const clones = Array.from(pallets).map(t => t.cloneNode(true));
                             cleanup();
-                            resolve(clone);
+                            resolve(clones);
                             return;
                         }
 
-                        // jeśli tabela sama się nie doczytała - kliknij "Real shipping prices"
+                        // 2) ceny się doczytały (są jakieś tabele shipping-costs), ale palet brak
+                        const anyTable = doc.querySelector(`${ANY_SHIPPING_SELECTOR} tbody tr`);
+                        if (anyTable && readySince === null) readySince = Date.now();
+                        if (readySince !== null && Date.now() - readySince > GRACE_MS) {
+                            cleanup();
+                            resolve([]);
+                            return;
+                        }
+
+                        // 3) ceny się nie doczytały same - kliknij "Real shipping prices"
                         if (!clicked && Date.now() - startedAt > CLICK_AFTER_MS) {
                             const toggle = doc.querySelector('#real_shipping_prices_toggle');
                             if (toggle) {
@@ -106,9 +124,14 @@
                             }
                         }
 
+                        // 4) timeout
                         if (Date.now() - startedAt > TIMEOUT_MS) {
                             cleanup();
-                            reject(new Error('Przekroczono czas oczekiwania na tabelę shipping-costs-0'));
+                            if (readySince !== null) {
+                                resolve([]);
+                            } else {
+                                reject(new Error('Przekroczono czas oczekiwania na załadowanie cen wysyłki w Auftragu'));
+                            }
                         }
                     } catch (e) {
                         cleanup();
@@ -126,8 +149,8 @@
         });
     }
 
-    // --- przygotowanie skopiowanej tabeli do wyświetlenia ---
-    function prepareTable(clone) {
+    // --- przygotowanie skopiowanych tabel do wyświetlenia ---
+    function prepareTables(clones) {
         // własny styl ukrywania - niezależny od CSS strony
         if (!document.getElementById('tm-shipping-style')) {
             const style = document.createElement('style');
@@ -139,42 +162,44 @@
             document.head.appendChild(style);
         }
 
-        // usuń podglądy zdjęć (Tip/UnTip nie działają poza oryginalną stroną)
-        clone.querySelectorAll('[onmouseover],[onmouseout]').forEach(el => {
-            el.removeAttribute('onmouseover');
-            el.removeAttribute('onmouseout');
-        });
-        // linki względne -> absolutne
-        clone.querySelectorAll('a[href]').forEach(a => {
-            const href = a.getAttribute('href');
-            if (href && href !== '#') {
-                a.href = new URL(href, 'https://www.prologistics.info/').href;
-            }
-        });
-        // sortowanie nie ma tu sensu - wyłącz klikanie nagłówków
-        clone.querySelectorAll('a.sort_row').forEach(a => {
-            a.removeAttribute('href');
-            a.style.cursor = 'default';
-        });
-
-        // odtwórz widok z Auftragu: domyślnie tylko "on" bez "toggle", reszta pod "Show all"
         const hiddenRows = [];
-        clone.querySelectorAll('tr.cheaper-method').forEach(tr => {
-            const visibleByDefault = tr.classList.contains('cheaper-method-on') && !tr.classList.contains('cheaper-method-toggle');
 
-            // usuń klasy strony, żeby jej CSS/JS nie nadpisywał widoczności
-            tr.classList.remove('cheaper-method-on', 'cheaper-method-off', 'cheaper-method-toggle');
-            tr.style.removeProperty('display');
+        clones.forEach(clone => {
+            // usuń podglądy zdjęć (Tip/UnTip nie działają poza oryginalną stroną)
+            clone.querySelectorAll('[onmouseover],[onmouseout]').forEach(el => {
+                el.removeAttribute('onmouseover');
+                el.removeAttribute('onmouseout');
+            });
+            // linki względne -> absolutne
+            clone.querySelectorAll('a[href]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (href && href !== '#') {
+                    a.href = new URL(href, 'https://www.prologistics.info/').href;
+                }
+            });
+            // sortowanie nie ma tu sensu - wyłącz klikanie nagłówków
+            clone.querySelectorAll('a.sort_row').forEach(a => {
+                a.removeAttribute('href');
+                a.style.cursor = 'default';
+            });
 
-            if (visibleByDefault) {
-                tr.classList.add('tm-row-visible');
-            } else {
-                tr.classList.add('tm-row-hidden');
-                hiddenRows.push(tr);
-            }
+            // odtwórz widok z Auftragu: domyślnie tylko "on" bez "toggle", reszta pod "Show all"
+            clone.querySelectorAll('tr.cheaper-method').forEach(tr => {
+                const visibleByDefault = tr.classList.contains('cheaper-method-on') && !tr.classList.contains('cheaper-method-toggle');
+
+                tr.classList.remove('cheaper-method-on', 'cheaper-method-off', 'cheaper-method-toggle');
+                tr.style.removeProperty('display');
+
+                if (visibleByDefault) {
+                    tr.classList.add('tm-row-visible');
+                } else {
+                    tr.classList.add('tm-row-hidden');
+                    hiddenRows.push(tr);
+                }
+            });
         });
 
-        return { clone, hiddenRows };
+        return hiddenRows;
     }
 
     // --- logika buttona ---
@@ -195,35 +220,44 @@
         panel.textContent = 'Ładowanie Auftragu... (może potrwać kilka sekund)';
 
         try {
-            const rawTable = await fetchTableViaIframe();
-            const { clone, hiddenRows } = prepareTable(rawTable);
+            const clones = await fetchPalletTablesViaIframe();
 
             panel.innerHTML = '';
 
-            if (hiddenRows.length) {
-                const showAllBtn = document.createElement('button');
-                showAllBtn.type = 'button';
-                showAllBtn.textContent = `Show all (${hiddenRows.length} więcej)`;
-                showAllBtn.style.cssText = 'margin-bottom:8px; padding:3px 8px; cursor:pointer;';
-                let expanded = false;
-                showAllBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    expanded = !expanded;
-                    hiddenRows.forEach(tr => {
-                        tr.classList.toggle('tm-row-hidden', !expanded);
-                        tr.classList.toggle('tm-row-visible', expanded);
-                    });
-                    showAllBtn.textContent = expanded ? 'Show less' : `Show all (${hiddenRows.length} więcej)`;
-                });
-                panel.appendChild(showAllBtn);
-                panel.appendChild(document.createElement('br'));
-            }
+            if (!clones.length) {
+                const msg = document.createElement('b');
+                msg.textContent = 'Pallets not found';
+                panel.appendChild(msg);
+            } else {
+                const hiddenRows = prepareTables(clones);
 
-            panel.appendChild(clone);
-            const clear = document.createElement('div');
-            clear.style.clear = 'both';
-            panel.appendChild(clear);
+                if (hiddenRows.length) {
+                    const showAllBtn = document.createElement('button');
+                    showAllBtn.type = 'button';
+                    showAllBtn.textContent = `Show all (${hiddenRows.length} więcej)`;
+                    showAllBtn.style.cssText = 'margin-bottom:8px; padding:3px 8px; cursor:pointer;';
+                    let expanded = false;
+                    showAllBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        expanded = !expanded;
+                        hiddenRows.forEach(tr => {
+                            tr.classList.toggle('tm-row-hidden', !expanded);
+                            tr.classList.toggle('tm-row-visible', expanded);
+                        });
+                        showAllBtn.textContent = expanded ? 'Show less' : `Show all (${hiddenRows.length} więcej)`;
+                    });
+                    panel.appendChild(showAllBtn);
+                    panel.appendChild(document.createElement('br'));
+                }
+
+                clones.forEach(clone => {
+                    panel.appendChild(clone);
+                    const clear = document.createElement('div');
+                    clear.style.clear = 'both';
+                    panel.appendChild(clear);
+                });
+            }
 
             loaded = true;
         } catch (err) {
