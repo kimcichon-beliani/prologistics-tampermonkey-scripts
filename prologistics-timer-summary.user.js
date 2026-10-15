@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.1.0
+// @version      1.2.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -22,8 +22,8 @@
     // 1) timer:   "... commented on ... spent time from A to B (hh:mm:ss) "komentarz""
     // 2) ręczny:  "... added manually spent time on RRRR-MM-DD GG:MM:SS (hh:mm:ss) "komentarz""
     // (wpisy "spent time on the task" bez komentarza są pomijane)
-    const RE_TIMER = /^.+? commented on .+? spent time from (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) to (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\d+):(\d{2}):(\d{2})\) "([\s\S]*)"\s*$/;
-    const RE_MANUAL = /^.+? added manually spent time on (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\d+):(\d{2}):(\d{2})\) "([\s\S]*)"\s*$/;
+    const RE_TIMER = /^(.+?) commented on .+? spent time from (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) to (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\d+):(\d{2}):(\d{2})\) "([\s\S]*)"\s*$/;
+    const RE_MANUAL = /^(.+?) added manually spent time on (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\d+):(\d{2}):(\d{2})\) "([\s\S]*)"\s*$/;
 
     const norm = el => el.textContent.replace(/\s+/g, ' ').trim();
 
@@ -31,17 +31,17 @@
         let m = text.match(RE_TIMER);
         if (m) {
             return {
-                manual: false, date: m[1], start: m[2], end: m[4],
-                seconds: (+m[5]) * 3600 + (+m[6]) * 60 + (+m[7]),
-                label: m[8].trim() || '(pusty komentarz)',
+                manual: false, person: m[1].trim(), date: m[2], start: m[3], end: m[5],
+                seconds: (+m[6]) * 3600 + (+m[7]) * 60 + (+m[8]),
+                label: m[9].trim() || '(pusty komentarz)',
             };
         }
         m = text.match(RE_MANUAL);
         if (m) {
             return {
-                manual: true, date: m[1], start: m[2], end: null,
-                seconds: (+m[3]) * 3600 + (+m[4]) * 60 + (+m[5]),
-                label: m[6].trim() || '(pusty komentarz)',
+                manual: true, person: m[1].trim(), date: m[2], start: m[3], end: null,
+                seconds: (+m[4]) * 3600 + (+m[5]) * 60 + (+m[6]),
+                label: m[7].trim() || '(pusty komentarz)',
             };
         }
         return null;
@@ -92,18 +92,19 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;right:16px;bottom:16px;z-index:99999;width:340px;max-height:70vh;
+        box.style.cssText = `position:fixed;top:16px;right:16px;z-index:99999;width:340px;max-height:70vh;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
             <div id="tm-ts-head" style="background:${BRAND};color:#fff;padding:8px 12px;cursor:pointer;
                 display:flex;justify-content:space-between;align-items:center;font-weight:bold;">
-                <span>⏱ Podsumowanie timerów</span><span id="tm-ts-toggle">–</span>
+                <span>Summary of Timers</span><span id="tm-ts-toggle">–</span>
             </div>
             <div id="tm-ts-body" style="padding:10px 12px;">
                 <div style="margin-bottom:8px;">
                     <input type="date" id="tm-ts-date" style="width:100%;padding:3px;box-sizing:border-box;">
                 </div>
+                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;"></div>
                 <div id="tm-ts-out"></div>
             </div>`;
         document.body.appendChild(box);
@@ -124,11 +125,17 @@
         const date = box.querySelector('#tm-ts-date').value;
         const rows = readEntries().filter(e => e.date === date);
         const out = box.querySelector('#tm-ts-out');
+        const info = box.querySelector('#tm-ts-info');
 
         if (!rows.length) {
+            info.textContent = '';
             out.innerHTML = '<i>Brak timerów z komentarzem dla tego dnia.</i>';
             return;
         }
+
+        // dopisek: z którego dnia i czyje timery (osoby wykrywane z wpisów, bez wyboru)
+        const persons = [...new Set(rows.map(e => e.person))].join(', ');
+        info.innerHTML = `Podsumowanie timerów z dnia <b>${date}</b><br>utworzonych przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
 
         // suma per komentarz
         const byLabel = new Map();
