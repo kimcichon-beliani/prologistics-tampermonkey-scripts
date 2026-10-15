@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.2.1
+// @version      1.2.2
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -98,7 +98,7 @@
         box.innerHTML = `
             <div id="tm-ts-head" style="background:${BRAND};color:#fff;padding:8px 12px;cursor:pointer;
                 display:flex;justify-content:space-between;align-items:center;font-weight:bold;">
-                <span>Summary of Timers</span><span id="tm-ts-toggle">–</span>
+                <span>⏱ Summary of Timers</span><span id="tm-ts-toggle">–</span>
             </div>
             <div id="tm-ts-body" style="padding:10px 12px;">
                 <div style="margin-bottom:8px;">
