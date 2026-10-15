@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.5.0
+// @version      1.6.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -157,7 +157,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:max-content;max-width:90vw;max-height:70vh;white-space:nowrap;
+        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:440px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
@@ -170,7 +170,7 @@
                     <input type="date" id="tm-ts-date" style="width:100%;padding:3px;box-sizing:border-box;">
                 </div>
                 <div id="tm-ts-warn" style="margin-bottom:8px;"></div>
-                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;"></div>
+                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;overflow:hidden;text-overflow:ellipsis;"></div>
                 <div id="tm-ts-out"></div>
             </div>`;
         document.body.appendChild(box);
@@ -211,7 +211,7 @@
         // ukryte komentarze: spróbuj wczytać wszystkie, a jeśli się nie da – ostrzeż
         const hidden = ensureAll();
         warn.innerHTML = hidden
-            ? `<div style="color:#a60;font-size:12px;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
+            ? `<div style="color:#a60;font-size:12px;white-space:normal;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
               `${loadAttempts >= 3 ? 'nie udało się wczytać automatycznie' : 'wczytuję pozostałe…'} ` +
               `<button class="tm-ts-load" style="cursor:pointer;margin-left:4px;">Wczytaj wszystkie</button></div>`
             : '';
@@ -224,6 +224,7 @@
 
         // dopisek: z którego dnia i czyje timery (osoby wykrywane z wpisów, bez wyboru)
         const persons = [...new Set(rows.map(e => e.person))].join(', ');
+        info.title = `Podsumowanie timerów z dnia ${date} przez: ${persons}`;
         info.innerHTML = `Podsumowanie timerów z dnia <b>${date}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
 
         // suma per komentarz
@@ -243,19 +244,27 @@
         const sumLabels = rows.reduce((a, e) => a + e.seconds, 0);
         const manualCount = rows.filter(e => e.manual).length;
 
-        let html = `<table style="border-collapse:collapse;width:100%;">`;
+        const td = 'padding:3px 0;';
+        let html = `<table style="table-layout:fixed;width:100%;border-collapse:collapse;">
+            <colgroup><col><col style="width:62px;"><col style="width:68px;"><col style="width:96px;"></colgroup>`;
         [...byLabel.entries()].sort((a, b) => b[1].sec - a[1].sec).forEach(([label, v]) => {
-            const man = v.manual ? ` <span style="color:#888;">(ręcznie: ${v.manual})</span>` : '';
+            const safe = label.replace(/</g, '&lt;');
+            const man = v.manual ? ` <span title="w tym wpisów ręcznych: ${v.manual}">✎${v.manual}</span>` : '';
             html += `<tr style="border-bottom:1px solid #eee;">
-                <td style="padding:3px 12px 3px 0;">${label.replace(/</g, '&lt;')} <span style="color:#888;">×${v.n}</span>${man}</td>
-                <td style="padding:3px 8px;text-align:right;font-family:monospace;">${fmt(v.sec)}</td>
-                <td style="padding:3px 0;text-align:right;font-family:monospace;">${minCell(v.sec)}</td></tr>`;
+                <td title="${safe}" style="${td}overflow:hidden;text-overflow:ellipsis;">${safe}</td>
+                <td style="${td}color:#888;text-align:right;padding-right:8px;">×${v.n}${man}</td>
+                <td style="${td}text-align:right;font-family:monospace;">${fmt(v.sec)}</td>
+                <td style="${td}text-align:right;font-family:monospace;">${minCell(v.sec)}</td></tr>`;
         });
-        html += `<tr><td style="padding:6px 12px 0 0;font-weight:bold;">RAZEM <span style="font-weight:normal;color:#888;">(${uniq.size} wpisów${manualCount ? ', ręcznie: ' + manualCount : ''})</span></td>
-            <td style="padding:6px 8px 0;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${fmt(total)}</td>
-            <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${minCell(total)}</td></tr></table>`;
+        const tt = 'padding:6px 0 0;font-weight:bold;';
+        const totMan = manualCount ? ` <span title="w tym wpisów ręcznych: ${manualCount}">✎${manualCount}</span>` : '';
+        html += `<tr>
+            <td style="${tt}color:${BRAND};">RAZEM</td>
+            <td style="${tt}color:#888;font-weight:normal;text-align:right;padding-right:8px;" title="liczba wpisów">×${uniq.size}${totMan}</td>
+            <td style="${tt}text-align:right;font-family:monospace;color:${BRAND};">${fmt(total)}</td>
+            <td style="${tt}text-align:right;font-family:monospace;color:${BRAND};">${minCell(total)}</td></tr></table>`;
         if (sumLabels !== total) {
-            html += `<div style="margin-top:6px;color:#a60;font-size:12px;cursor:help;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
+            html += `<div style="margin-top:6px;color:#a60;font-size:12px;cursor:help;overflow:hidden;text-overflow:ellipsis;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
         }
         out.innerHTML = html;
     }
