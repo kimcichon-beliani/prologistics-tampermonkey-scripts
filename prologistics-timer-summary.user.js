@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.4.0
+// @version      1.5.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -87,6 +87,45 @@
         `<span class="tm-ts-min" data-copy="${minVal(sec)}" title="Kliknij, aby skopiować ${minVal(sec)}" ` +
         `style="cursor:pointer;border-bottom:1px dotted ${BRAND};${extra}">${fmtMin(sec)}</span>`;
 
+    // ---------- ukryte komentarze ("You see 20 of 26 comments, click to see All comments") ----------
+    let loadAttempts = 0;
+    let lastClick = 0;
+
+    function findNotice() {
+        const panel = document.getElementById(PANEL_ID);
+        const re = /You see (\d+) of (\d+) comments/;
+        let found = null;
+        // querySelectorAll idzie w kolejności dokumentu, więc ostatnie dopasowanie jest najgłębsze
+        document.querySelectorAll('td, div, span, p').forEach(el => {
+            if (panel && panel.contains(el)) return;
+            const t = norm(el);
+            if (t.length > 200) return;
+            const m = t.match(re);
+            if (m) found = { el, shown: +m[1], total: +m[2] };
+        });
+        return found;
+    }
+
+    function clickAll(notice) {
+        const link = [...notice.el.querySelectorAll('a, button, [role="button"], span')]
+            .find(e => e.children.length === 0 && /all comments/i.test(e.textContent));
+        (link || notice.el).click();
+        console.log(LOG, 'Klik w "All comments"');
+    }
+
+    // klika "All comments" (max 3 próby), zwraca informację o ukrytych komentarzach lub null
+    function ensureAll() {
+        const n = findNotice();
+        if (!n) { loadAttempts = 0; return null; }
+        if (loadAttempts < 3 && Date.now() - lastClick > 2000) {
+            loadAttempts++;
+            lastClick = Date.now();
+            clickAll(n);
+            setTimeout(schedule, 2200);
+        }
+        return n;
+    }
+
     // ---------- zczytywanie ----------
     function readEntries() {
         const panel = document.getElementById(PANEL_ID);
@@ -130,6 +169,7 @@
                 <div style="margin-bottom:8px;">
                     <input type="date" id="tm-ts-date" style="width:100%;padding:3px;box-sizing:border-box;">
                 </div>
+                <div id="tm-ts-warn" style="margin-bottom:8px;"></div>
                 <div id="tm-ts-info" style="margin-bottom:8px;color:#555;"></div>
                 <div id="tm-ts-out"></div>
             </div>`;
@@ -143,6 +183,11 @@
             box.querySelector('#tm-ts-toggle').textContent = hidden ? '–' : '+';
         });
         box.querySelector('#tm-ts-date').addEventListener('change', render);
+        box.querySelector('#tm-ts-warn').addEventListener('click', ev => {
+            if (!ev.target.closest('.tm-ts-load')) return;
+            const n = findNotice();
+            if (n) { lastClick = Date.now(); clickAll(n); setTimeout(schedule, 2200); }
+        });
         box.querySelector('#tm-ts-out').addEventListener('click', ev => {
             const el = ev.target.closest('.tm-ts-min');
             if (!el) return;
@@ -161,6 +206,15 @@
         const rows = readEntries().filter(e => e.date === date);
         const out = box.querySelector('#tm-ts-out');
         const info = box.querySelector('#tm-ts-info');
+        const warn = box.querySelector('#tm-ts-warn');
+
+        // ukryte komentarze: spróbuj wczytać wszystkie, a jeśli się nie da – ostrzeż
+        const hidden = ensureAll();
+        warn.innerHTML = hidden
+            ? `<div style="color:#a60;font-size:12px;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
+              `${loadAttempts >= 3 ? 'nie udało się wczytać automatycznie' : 'wczytuję pozostałe…'} ` +
+              `<button class="tm-ts-load" style="cursor:pointer;margin-left:4px;">Wczytaj wszystkie</button></div>`
+            : '';
 
         if (!rows.length) {
             info.textContent = '';
