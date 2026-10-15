@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.3.0
+// @version      1.4.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -66,7 +66,26 @@
         const m = (Math.round(sec / 60 * 10) / 10).toString().replace('.', ',');
         return `(${m} min)`;
     };
+    const minVal = sec => (Math.round(sec / 60 * 10) / 10).toString().replace('.', ',');
     const fmtFull = sec => `${fmt(sec)} ${fmtMin(sec)}`;
+
+    // klik w minuty -> kopiuje samą liczbę (np. "30,4") do schowka
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        return Promise.resolve();
+    }
+    const minCell = (sec, extra = '') =>
+        `<span class="tm-ts-min" data-copy="${minVal(sec)}" title="Kliknij, aby skopiować ${minVal(sec)}" ` +
+        `style="cursor:pointer;border-bottom:1px dotted ${BRAND};${extra}">${fmtMin(sec)}</span>`;
 
     // ---------- zczytywanie ----------
     function readEntries() {
@@ -99,7 +118,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:380px;max-height:70vh;
+        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:max-content;max-width:90vw;max-height:70vh;white-space:nowrap;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
@@ -124,6 +143,15 @@
             box.querySelector('#tm-ts-toggle').textContent = hidden ? '–' : '+';
         });
         box.querySelector('#tm-ts-date').addEventListener('change', render);
+        box.querySelector('#tm-ts-out').addEventListener('click', ev => {
+            const el = ev.target.closest('.tm-ts-min');
+            if (!el) return;
+            const old = el.textContent;
+            copyText(el.dataset.copy).then(() => {
+                el.textContent = '✓ skopiowano';
+                setTimeout(() => { el.textContent = old; }, 900);
+            }).catch(err => console.warn(LOG, 'Nie udało się skopiować', err));
+        });
     }
 
     function render() {
@@ -142,7 +170,7 @@
 
         // dopisek: z którego dnia i czyje timery (osoby wykrywane z wpisów, bez wyboru)
         const persons = [...new Set(rows.map(e => e.person))].join(', ');
-        info.innerHTML = `Podsumowanie timerów z dnia <b>${date}</b><br>utworzonych przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
+        info.innerHTML = `Podsumowanie timerów z dnia <b>${date}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
 
         // suma per komentarz
         const byLabel = new Map();
@@ -161,17 +189,19 @@
         const sumLabels = rows.reduce((a, e) => a + e.seconds, 0);
         const manualCount = rows.filter(e => e.manual).length;
 
-        let html = `<table style="width:100%;border-collapse:collapse;">`;
+        let html = `<table style="border-collapse:collapse;width:100%;">`;
         [...byLabel.entries()].sort((a, b) => b[1].sec - a[1].sec).forEach(([label, v]) => {
             const man = v.manual ? ` <span style="color:#888;">(ręcznie: ${v.manual})</span>` : '';
             html += `<tr style="border-bottom:1px solid #eee;">
-                <td style="padding:3px 0;">${label.replace(/</g, '&lt;')} <span style="color:#888;">×${v.n}</span>${man}</td>
-                <td style="padding:3px 0;text-align:right;font-family:monospace;">${fmtFull(v.sec)}</td></tr>`;
+                <td style="padding:3px 12px 3px 0;">${label.replace(/</g, '&lt;')} <span style="color:#888;">×${v.n}</span>${man}</td>
+                <td style="padding:3px 8px;text-align:right;font-family:monospace;">${fmt(v.sec)}</td>
+                <td style="padding:3px 0;text-align:right;font-family:monospace;">${minCell(v.sec)}</td></tr>`;
         });
-        html += `<tr><td style="padding-top:6px;font-weight:bold;">RAZEM (wpisów: ${uniq.size}${manualCount ? ', w tym ręcznych: ' + manualCount : ''})</td>
-            <td style="padding-top:6px;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${fmtFull(total)}</td></tr></table>`;
+        html += `<tr><td style="padding:6px 12px 0 0;font-weight:bold;">RAZEM <span style="font-weight:normal;color:#888;">(${uniq.size} wpisów${manualCount ? ', ręcznie: ' + manualCount : ''})</span></td>
+            <td style="padding:6px 8px 0;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${fmt(total)}</td>
+            <td style="padding:6px 0 0;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${minCell(total)}</td></tr></table>`;
         if (sumLabels !== total) {
-            html += `<div style="margin-top:6px;color:#a60;font-size:12px;">⚠ Ten sam timer ma kilka komentarzy – w sumie liczony raz (suma po komentarzach: ${fmtFull(sumLabels)}).</div>`;
+            html += `<div style="margin-top:6px;color:#a60;font-size:12px;cursor:help;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
         }
         out.innerHTML = html;
     }
