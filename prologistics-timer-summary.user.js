@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.2.2
+// @version      1.3.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -61,6 +61,13 @@
         return `${p(h)}:${p(m)}:${p(s)}`;
     };
 
+    // minuty w nawiasie, np. "(30 min)", "(0,1 min)"
+    const fmtMin = sec => {
+        const m = (Math.round(sec / 60 * 10) / 10).toString().replace('.', ',');
+        return `(${m} min)`;
+    };
+    const fmtFull = sec => `${fmt(sec)} ${fmtMin(sec)}`;
+
     // ---------- zczytywanie ----------
     function readEntries() {
         const panel = document.getElementById(PANEL_ID);
@@ -92,7 +99,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:340px;max-height:70vh;
+        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:380px;max-height:70vh;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
@@ -159,12 +166,12 @@
             const man = v.manual ? ` <span style="color:#888;">(ręcznie: ${v.manual})</span>` : '';
             html += `<tr style="border-bottom:1px solid #eee;">
                 <td style="padding:3px 0;">${label.replace(/</g, '&lt;')} <span style="color:#888;">×${v.n}</span>${man}</td>
-                <td style="padding:3px 0;text-align:right;font-family:monospace;">${fmt(v.sec)}</td></tr>`;
+                <td style="padding:3px 0;text-align:right;font-family:monospace;">${fmtFull(v.sec)}</td></tr>`;
         });
         html += `<tr><td style="padding-top:6px;font-weight:bold;">RAZEM (wpisów: ${uniq.size}${manualCount ? ', w tym ręcznych: ' + manualCount : ''})</td>
-            <td style="padding-top:6px;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${fmt(total)}</td></tr></table>`;
+            <td style="padding-top:6px;text-align:right;font-weight:bold;font-family:monospace;color:${BRAND};">${fmtFull(total)}</td></tr></table>`;
         if (sumLabels !== total) {
-            html += `<div style="margin-top:6px;color:#a60;font-size:12px;">⚠ Ten sam timer ma kilka komentarzy – w sumie liczony raz (suma po komentarzach: ${fmt(sumLabels)}).</div>`;
+            html += `<div style="margin-top:6px;color:#a60;font-size:12px;">⚠ Ten sam timer ma kilka komentarzy – w sumie liczony raz (suma po komentarzach: ${fmtFull(sumLabels)}).</div>`;
         }
         out.innerHTML = html;
     }
