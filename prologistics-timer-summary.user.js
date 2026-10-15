@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.2.0
+// @version      1.2.1
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -92,7 +92,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:16px;right:16px;z-index:99999;width:340px;max-height:70vh;
+        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:340px;max-height:70vh;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
