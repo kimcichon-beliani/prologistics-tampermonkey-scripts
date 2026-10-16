@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.6.0
+// @version      1.6.1
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -61,15 +61,15 @@
         return `${p(h)}:${p(m)}:${p(s)}`;
     };
 
-    // minuty w nawiasie, np. "(30 min)", "(0,1 min)"
+    // minuty w nawiasie, np. "(30 min)", "(0.1 min)"
     const fmtMin = sec => {
-        const m = (Math.round(sec / 60 * 10) / 10).toString().replace('.', ',');
+        const m = (Math.round(sec / 60 * 10) / 10).toString();
         return `(${m} min)`;
     };
-    const minVal = sec => (Math.round(sec / 60 * 10) / 10).toString().replace('.', ',');
+    const minVal = sec => (Math.round(sec / 60 * 10) / 10).toString();
     const fmtFull = sec => `${fmt(sec)} ${fmtMin(sec)}`;
 
-    // klik w minuty -> kopiuje samą liczbę (np. "30,4") do schowka
+    // klik w minuty -> kopiuje samą liczbę (np. "30.4") do schowka
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
