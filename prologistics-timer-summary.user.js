@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.7.0
+// @version      1.7.1
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -180,7 +180,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:51px;right:96px;z-index:99999;width:400px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
+        box.style.cssText = `position:fixed;top:51px;right:96px;z-index:99999;width:390px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
@@ -193,7 +193,7 @@
                     <input type="text" id="tm-ts-date" maxlength="10" placeholder="DD.MM.RRRR" title="Dzień.miesiąc.rok"
                         style="width:88px;padding:2px 4px;font-size:12px;text-align:center;box-sizing:border-box;">
                     <button type="button" id="tm-ts-cal" title="Wybierz z kalendarza"
-                        style="cursor:pointer;padding:1px 5px;font-size:12px;">📅</button>
+                        style="cursor:pointer;padding:1px 5px;font-size:12px;">📆</button>
                     <input type="date" id="tm-ts-native" tabindex="-1"
                         style="position:absolute;left:0;top:100%;width:1px;height:1px;opacity:0;pointer-events:none;">
                 </div>
