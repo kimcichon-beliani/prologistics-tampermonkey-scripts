@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.6.1
+// @version      1.6.2
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -157,7 +157,7 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:66px;right:116px;z-index:99999;width:440px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
+        box.style.cssText = `position:fixed;top:51px;right:96px;z-index:99999;width:400px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
             overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
             box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
@@ -244,9 +244,9 @@
         const sumLabels = rows.reduce((a, e) => a + e.seconds, 0);
         const manualCount = rows.filter(e => e.manual).length;
 
-        const td = 'padding:3px 0;';
-        let html = `<table style="table-layout:fixed;width:100%;border-collapse:collapse;">
-            <colgroup><col><col style="width:62px;"><col style="width:68px;"><col style="width:96px;"></colgroup>`;
+        const td = 'padding:2px 0;';
+        let html = `<table style="table-layout:fixed;width:100%;border-collapse:collapse;font-size:12px;">
+            <colgroup><col><col style="width:54px;"><col style="width:62px;"><col style="width:88px;"></colgroup>`;
         [...byLabel.entries()].sort((a, b) => b[1].sec - a[1].sec).forEach(([label, v]) => {
             const safe = label.replace(/</g, '&lt;');
             const man = v.manual ? ` <span title="w tym wpisów ręcznych: ${v.manual}">✎${v.manual}</span>` : '';
@@ -256,7 +256,7 @@
                 <td style="${td}text-align:right;font-family:monospace;">${fmt(v.sec)}</td>
                 <td style="${td}text-align:right;font-family:monospace;">${minCell(v.sec)}</td></tr>`;
         });
-        const tt = 'padding:6px 0 0;font-weight:bold;';
+        const tt = 'padding:4px 0 0;font-weight:bold;';
         const totMan = manualCount ? ` <span title="w tym wpisów ręcznych: ${manualCount}">✎${manualCount}</span>` : '';
         html += `<tr>
             <td style="${tt}color:${BRAND};">RAZEM</td>
