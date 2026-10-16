@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.7.1
+// @version      1.7.2
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -295,7 +295,7 @@
         const td = 'padding:2px 0;';
         let html = `<table style="table-layout:fixed;width:100%;border-collapse:collapse;font-size:12px;">
             <colgroup><col><col style="width:54px;"><col style="width:62px;"><col style="width:88px;"></colgroup>`;
-        [...byLabel.entries()].sort((a, b) => b[1].sec - a[1].sec).forEach(([label, v]) => {
+        [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pl', { sensitivity: 'base' })).forEach(([label, v]) => {
             const safe = label.replace(/</g, '&lt;');
             const man = v.manual ? ` <span title="w tym wpisów ręcznych: ${v.manual}">✎${v.manual}</span>` : '';
             html += `<tr style="border-bottom:1px solid #eee;">
