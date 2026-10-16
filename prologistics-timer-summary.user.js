@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.6.2
+// @version      1.7.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -52,6 +52,29 @@
         const p = n => String(n).padStart(2, '0');
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     };
+
+    // data w formacie DD.MM.RRRR (wewnętrznie trzymamy RRRR-MM-DD)
+    const isoToPl = iso => iso.split('-').reverse().join('.');
+    function plToIso(str) {
+        const m = str.trim().match(/^(\d{1,2})[.\-\/ ](\d{1,2})[.\-\/ ](\d{4})$/);
+        if (!m) return null;
+        const d = +m[1], mo = +m[2], y = +m[3];
+        const dt = new Date(y, mo - 1, d);
+        if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+        const p = n => String(n).padStart(2, '0');
+        return `${y}-${p(mo)}-${p(d)}`;
+    }
+
+    // zmniejsza czcionkę, aż tekst zmieści się w jednej linii (od 12 px do 8 px)
+    function fitText(el, max = 12, min = 8) {
+        let size = max;
+        el.style.fontSize = size + 'px';
+        if (!el.clientWidth) return;
+        while (el.scrollWidth > el.clientWidth && size > min) {
+            size -= 0.5;
+            el.style.fontSize = size + 'px';
+        }
+    }
 
     const fmt = sec => {
         const h = Math.floor(sec / 3600);
@@ -166,23 +189,47 @@
                 <span>⏱ Summary of Timers</span><span id="tm-ts-toggle">–</span>
             </div>
             <div id="tm-ts-body" style="padding:10px 12px;">
-                <div style="margin-bottom:8px;">
-                    <input type="date" id="tm-ts-date" style="width:100%;padding:3px;box-sizing:border-box;">
+                <div style="margin-bottom:8px;display:flex;align-items:center;gap:4px;position:relative;">
+                    <input type="text" id="tm-ts-date" maxlength="10" placeholder="DD.MM.RRRR" title="Dzień.miesiąc.rok"
+                        style="width:88px;padding:2px 4px;font-size:12px;text-align:center;box-sizing:border-box;">
+                    <button type="button" id="tm-ts-cal" title="Wybierz z kalendarza"
+                        style="cursor:pointer;padding:1px 5px;font-size:12px;">📅</button>
+                    <input type="date" id="tm-ts-native" tabindex="-1"
+                        style="position:absolute;left:0;top:100%;width:1px;height:1px;opacity:0;pointer-events:none;">
                 </div>
                 <div id="tm-ts-warn" style="margin-bottom:8px;"></div>
-                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;overflow:hidden;text-overflow:ellipsis;"></div>
+                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;overflow:hidden;white-space:nowrap;"></div>
                 <div id="tm-ts-out"></div>
             </div>`;
         document.body.appendChild(box);
 
-        box.querySelector('#tm-ts-date').value = today();
         box.querySelector('#tm-ts-head').addEventListener('click', () => {
             const b = box.querySelector('#tm-ts-body');
             const hidden = b.style.display === 'none';
             b.style.display = hidden ? '' : 'none';
             box.querySelector('#tm-ts-toggle').textContent = hidden ? '–' : '+';
         });
-        box.querySelector('#tm-ts-date').addEventListener('change', render);
+        const txt = box.querySelector('#tm-ts-date');
+        const nat = box.querySelector('#tm-ts-native');
+        const setDate = iso => {
+            box.dataset.date = iso;
+            txt.value = isoToPl(iso);
+            nat.value = iso;
+            txt.style.borderColor = '';
+            render();
+        };
+        txt.addEventListener('change', () => {
+            const iso = plToIso(txt.value);
+            if (iso) setDate(iso);
+            else { txt.value = isoToPl(box.dataset.date); txt.style.borderColor = 'red'; setTimeout(() => { txt.style.borderColor = ''; }, 1200); }
+        });
+        nat.addEventListener('change', () => { if (nat.value) setDate(nat.value); });
+        box.querySelector('#tm-ts-cal').addEventListener('click', () => {
+            try { nat.showPicker(); } catch (e) { nat.click(); }
+        });
+        box.dataset.date = today();
+        txt.value = isoToPl(box.dataset.date);
+        nat.value = box.dataset.date;
         box.querySelector('#tm-ts-warn').addEventListener('click', ev => {
             if (!ev.target.closest('.tm-ts-load')) return;
             const n = findNotice();
@@ -202,7 +249,7 @@
     function render() {
         const box = document.getElementById(PANEL_ID);
         if (!box) return;
-        const date = box.querySelector('#tm-ts-date').value;
+        const date = box.dataset.date;
         const rows = readEntries().filter(e => e.date === date);
         const out = box.querySelector('#tm-ts-out');
         const info = box.querySelector('#tm-ts-info');
@@ -224,8 +271,9 @@
 
         // dopisek: z którego dnia i czyje timery (osoby wykrywane z wpisów, bez wyboru)
         const persons = [...new Set(rows.map(e => e.person))].join(', ');
-        info.title = `Podsumowanie timerów z dnia ${date} przez: ${persons}`;
-        info.innerHTML = `Podsumowanie timerów z dnia <b>${date}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
+        info.title = `Podsumowanie timerów z dnia ${isoToPl(date)} przez: ${persons}`;
+        info.innerHTML = `Podsumowanie timerów z dnia <b>${isoToPl(date)}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
+        fitText(info);
 
         // suma per komentarz
         const byLabel = new Map();
