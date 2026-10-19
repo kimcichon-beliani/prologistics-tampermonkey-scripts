@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Import tool - kolejne numery w Row #
 // @namespace    prologistics
-// @version      1.0
-// @description  Numeruje kolumnę "Row #" na liście importowanych zamówień kolejno od 1
+// @version      1.1
+// @description  Numeruje kolumnę "Row #" na liście importowanych zamówień kolejno od 1 (nagłówek bez zmian)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/settings_page/import_tool/*
 // @grant        none
@@ -19,16 +19,28 @@
 
     function renumber() {
         document.querySelectorAll('table.MuiTable-root').forEach(table => {
-            const headers = [...table.querySelectorAll('thead th')];
-            const colIdx = headers.findIndex(th => th.textContent.trim() === HEADER_TEXT);
+            // znajdź kolumnę "Row #" po nagłówku
+            const headerCell = [...table.querySelectorAll('th')]
+                .find(th => th.textContent.trim() === HEADER_TEXT);
+            if (!headerCell) return;
+
+            const colIdx = [...headerCell.parentElement.children].indexOf(headerCell);
             if (colIdx === -1) return;
 
-            table.querySelectorAll('tbody tr').forEach((tr, i) => {
-                const td = tr.children[colIdx];
-                if (!td) return;
+            let counter = 0;
+            table.querySelectorAll('tr').forEach(tr => {
+                // pomijamy wiersze nagłówkowe
+                if (tr.querySelector('th')) return;
 
-                const newNum = String(i + 1);
+                const td = tr.children[colIdx];
+                if (!td || td.tagName !== 'TD') return;
+
                 const current = td.textContent.trim();
+                if (current === HEADER_TEXT) return;
+                if (!/^\d+$/.test(current)) return;
+
+                counter++;
+                const newNum = String(counter);
                 if (current === newNum) return;
 
                 // zmieniamy tylko wartość węzła tekstowego, żeby nie psuć renderowania Reacta
