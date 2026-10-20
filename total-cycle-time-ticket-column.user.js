@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Total Cycle Time – kolumna Ticket
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.1.0
-// @description  Dodaje kolumnę "Ticket" (między # a Auftrag#) i oznacza ✔️ zamówienia wygenerowane z ticketu (RMA)
+// @version      1.2.0
+// @description  Dodaje kolumnę "Ticket" (między # a Auftrag#), oznacza ✔️ zamówienia z ticketu (RMA) i pokazuje podsumowanie pod wykresem
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @grant        none
@@ -115,11 +115,57 @@
         };
     }
 
+    // ---------- podsumowanie pod wykresem ----------
+    const stats = { total: 0, done: 0 };
+    let summaryBox = null;
+    let summaryTable = null;
+
+    function findChartHolder() {
+        const plot = document.querySelector('path.amcharts-plot-area');
+        if (!plot) return null;
+        const svg = plot.closest('svg');
+        const main = svg && svg.closest('.amcharts-main-div');
+        return (main && main.parentElement) || (svg && svg.parentElement) || null;
+    }
+
+    function ensureSummaryBox() {
+        if (summaryBox && document.contains(summaryBox)) return summaryBox;
+        const box = document.createElement('div');
+        box.id = 'tm-ticket-summary';
+        box.style.cssText = 'margin:8px 0;padding:8px 12px;border-left:4px solid ' + BRAND +
+            ';background:#f7f1f1;font:14px/1.5 Arial,sans-serif;display:inline-block;';
+        const holder = findChartHolder();
+        if (holder) {
+            holder.after(box);
+        } else if (summaryTable) {
+            summaryTable.before(box); // fallback, gdy wykres się nie wyrenderował
+        } else {
+            return null;
+        }
+        summaryBox = box;
+        return box;
+    }
+
+    function updateSummary() {
+        const box = ensureSummaryBox();
+        if (!box) return;
+        const tickets = document.querySelectorAll('tr[data-ticket-order="1"]').length;
+        const unknown = document.querySelectorAll('tr[data-ticket-unknown="1"]').length;
+        const normal = stats.total - tickets - unknown;
+        const pending = stats.total - stats.done;
+        box.innerHTML =
+            '<div><b>Orders:</b> ' + normal + ' <span style="color:#777">(bez ticketowych)</span></div>' +
+            '<div><b>Orders from tickets:</b> ' + tickets + '</div>' +
+            (unknown ? '<div style="color:#b00">Nie sprawdzono (błąd): ' + unknown + '</div>' : '') +
+            (pending ? '<div style="color:#777">Sprawdzanie… pozostało: ' + pending + '</div>' : '');
+    }
+
     function process() {
         const target = findTarget();
         if (!target) return;
         const { table, headerRow, idx } = target;
         table.dataset.tmTicketDone = '1';
+        summaryTable = summaryTable || table;
 
         // indeksy kolumn liczone PRZED wstawieniem kolumny Ticket
         const columnsCheck = getColumnsCheck(headerRow);
@@ -193,6 +239,7 @@
                         } else {
                             td.textContent = '?';
                             td.title = 'Błąd sprawdzania: ' + e.message;
+                            row.dataset.ticketUnknown = '1';
                         }
                     }
                 });
@@ -209,7 +256,22 @@
         }
 
         console.log(LOG, 'Ticket column: sprawdzam', jobs.length, 'zamówień');
-        runQueue(jobs, MAX_PARALLEL).then(() => {
+        stats.total += jobs.length;
+        updateSummary();
+        // wykres amCharts może się wyrenderować później – dopilnuj podsumowania pod nim
+        let tries = 0;
+        const timer = setInterval(() => {
+            tries++;
+            if (findChartHolder() && summaryBox && summaryBox.previousElementSibling !== findChartHolder()) {
+                findChartHolder().after(summaryBox);
+            }
+            if (tries >= 20) clearInterval(timer);
+        }, 500);
+
+        const wrapped = jobs.map(job => async () => {
+            try { await job(); } finally { stats.done++; updateSummary(); }
+        });
+        runQueue(wrapped, MAX_PARALLEL).then(() => {
             const count = table.querySelectorAll('tr[data-ticket-order="1"]').length;
             console.log(LOG, 'Ticket column: gotowe, ticketowych:', count, '| niezgodności:', mismatches);
         });
