@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – kolumna Ticket
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.0.0
+// @version      1.0.1
 // @description  Dodaje kolumnę "Ticket" (między # a Auftrag#) i oznacza ✔️ zamówienia wygenerowane z ticketu (RMA)
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -70,7 +70,7 @@
             if (table.dataset.tmTicketDone) continue;
             for (const row of table.rows) {
                 const cells = Array.from(row.cells);
-                const idx = cells.findIndex(c => /^\s*Auftrag\s*#?\s*$/i.test(c.textContent));
+                const idx = cells.findIndex(c => /^\s*Auftrag\s*#/i.test(c.textContent));
                 if (idx > 0) return { table, headerRow: row, idx };
             }
         }
@@ -93,9 +93,11 @@
 
         for (const row of Array.from(table.rows)) {
             if (row === headerRow) {
-                const th = makeCell(row.cells[idx].tagName.toLowerCase());
+                // klon nagłówka Auftrag# (bez dzieci) – zachowuje sticky/frozen style
+                const th = row.cells[idx].cloneNode(false);
                 th.textContent = 'Ticket';
-                th.style.color = BRAND;
+                th.removeAttribute('title');
+                th.style.textAlign = 'center';
                 row.insertBefore(th, row.cells[idx]);
                 continue;
             }
