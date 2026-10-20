@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – kolumna Ticket
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.0.1
+// @version      1.1.0
 // @description  Dodaje kolumnę "Ticket" (między # a Auftrag#) i oznacza ✔️ zamówienia wygenerowane z ticketu (RMA)
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -83,13 +83,49 @@
         return c;
     }
 
+    // ---------- dodatkowe sprawdzenie na podstawie kolumn tabeli ----------
+    // Zamówienie ticketowe: wypełnione Duration (entry_confirm) + Order confirmation,
+    // a PUSTE Duration (confirm_pay) + Payment day.
+    function findColByHref(headerRow, part) {
+        return Array.from(headerRow.cells).findIndex(c => {
+            const a = c.querySelector('a');
+            return a && (a.getAttribute('href') || '').includes(part);
+        });
+    }
+
+    function isFilled(cell) {
+        return !!cell && cell.textContent.trim() !== '';
+    }
+
+    function getColumnsCheck(headerRow) {
+        const cols = {
+            entryConfirm: findColByHref(headerRow, 'order=entry_confirm'),
+            confirmation: findColByHref(headerRow, 'order=confirmation_date'),
+            confirmPay: findColByHref(headerRow, 'order=confirm_pay'),
+            payment: findColByHref(headerRow, 'dir=payment_date')
+        };
+        if (Object.values(cols).some(i => i < 0)) {
+            console.warn(LOG, 'Ticket column: nie znaleziono wszystkich kolumn do dodatkowego sprawdzenia', cols);
+            return () => null;
+        }
+        return (row) => {
+            const c = row.cells;
+            return isFilled(c[cols.entryConfirm]) && isFilled(c[cols.confirmation]) &&
+                   !isFilled(c[cols.confirmPay]) && !isFilled(c[cols.payment]);
+        };
+    }
+
     function process() {
         const target = findTarget();
         if (!target) return;
         const { table, headerRow, idx } = target;
         table.dataset.tmTicketDone = '1';
 
+        // indeksy kolumn liczone PRZED wstawieniem kolumny Ticket
+        const columnsCheck = getColumnsCheck(headerRow);
+
         const jobs = [];
+        let mismatches = 0;
 
         for (const row of Array.from(table.rows)) {
             if (row === headerRow) {
@@ -106,32 +142,58 @@
             const aufCell = row.cells[idx];
             const m = aufCell && aufCell.textContent.match(/(\d{5,})\s*\/\s*(\d+)/);
             if (m) {
+                const byColumns = columnsCheck(row); // true / false / null (brak kolumn)
                 const td = makeCell('td');
                 row.insertBefore(td, aufCell);
+
+                const markTicket = (title, rmaId) => {
+                    td.innerHTML = '';
+                    if (rmaId) {
+                        const a = document.createElement('a');
+                        a.href = '/rma.php?rma_id=' + rmaId;
+                        a.target = '_blank';
+                        a.title = title || ('Ticket #' + rmaId);
+                        a.textContent = '✔️';
+                        a.style.textDecoration = 'none';
+                        td.appendChild(a);
+                    } else {
+                        td.textContent = '✔️';
+                        if (title) td.title = title;
+                    }
+                    row.dataset.ticketOrder = '1';
+                };
+
                 jobs.push(async () => {
                     td.textContent = '…';
                     try {
+                        // główna logika: tekst "Generated from Ticket#" w auftragu
                         const r = await checkOrder(m[1], m[2]);
                         if (r.ticket) {
-                            td.innerHTML = '';
-                            if (r.rmaId) {
-                                const a = document.createElement('a');
-                                a.href = '/rma.php?rma_id=' + r.rmaId;
-                                a.target = '_blank';
-                                a.title = 'Ticket #' + r.rmaId;
-                                a.textContent = '✔️';
-                                a.style.textDecoration = 'none';
-                                td.appendChild(a);
-                            } else {
-                                td.textContent = '✔️';
+                            let title = r.rmaId ? 'Ticket #' + r.rmaId : '';
+                            if (byColumns === false) {
+                                title += (title ? ' | ' : '') + 'Uwaga: kolumny dat wyglądają jak zwykłe zamówienie';
+                                console.warn(LOG, 'Niezgodność (auftrag=ticket, kolumny=normalne):', m[1] + '/' + m[2]);
+                                mismatches++;
                             }
-                            row.dataset.ticketOrder = '1';
+                            markTicket(title, r.rmaId);
+                        } else if (byColumns === true) {
+                            // dodatkowe sprawdzenie sugeruje ticket, ale auftrag tego nie potwierdza
+                            td.textContent = '⚠️';
+                            td.title = 'Kolumny sugerują ticket, ale w auftragu brak "' + MARKER_TEXT + '"';
+                            row.dataset.ticketMismatch = '1';
+                            console.warn(LOG, 'Niezgodność (kolumny=ticket, auftrag=normalne):', m[1] + '/' + m[2]);
+                            mismatches++;
                         } else {
                             td.textContent = '';
                         }
                     } catch (e) {
-                        td.textContent = '?';
-                        td.title = 'Błąd sprawdzania: ' + e.message;
+                        if (byColumns === true) {
+                            // fallback: nie udało się pobrać auftragu – użyj tylko kolumn
+                            markTicket('Wg kolumn tabeli (bez potwierdzenia w auftragu)', null);
+                        } else {
+                            td.textContent = '?';
+                            td.title = 'Błąd sprawdzania: ' + e.message;
+                        }
                     }
                 });
                 continue;
@@ -149,7 +211,7 @@
         console.log(LOG, 'Ticket column: sprawdzam', jobs.length, 'zamówień');
         runQueue(jobs, MAX_PARALLEL).then(() => {
             const count = table.querySelectorAll('tr[data-ticket-order="1"]').length;
-            console.log(LOG, 'Ticket column: gotowe, ticketowych:', count);
+            console.log(LOG, 'Ticket column: gotowe, ticketowych:', count, '| niezgodności:', mismatches);
         });
     }
 
