@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Seller Flex - kolumna Boxes
 // @namespace    kimcichon-beliani
-// @version      1.4
+// @version      1.5
 // @description  Dodaje kolumnę "Boxes" do listy zamówień Seller Flex (pobiera dane ze szczegółów zamówienia)
 // @author       kimrioter
 // @match        https://sellerflex.amazon.de/orders/all*
@@ -15,8 +15,12 @@
     'use strict';
 
     const LOG = '[TM script by kimrioter]';
-    const MAX_CONCURRENT = 3;
-    const IFRAME_TIMEOUT_MS = 25000;
+    const DETAILS_URL = 'https://sellerflex.amazon.de/orders/details/';
+    const WORKERS = 4;                 // ile iframe'ów pracuje równolegle
+    const POLL_MS = 150;               // jak często sprawdzamy wynik
+    const SPA_FALLBACK_MS = 6000;      // po tylu ms bez wyniku z nawigacji SPA robimy pełne przeładowanie
+    const TIMEOUT_MS = 25000;
+    const IDLE_CLEANUP_MS = 15000;
     const OLD_CACHE_PREFIX = 'sf_boxes_';
     const CACHE_PREFIX = 'sf_boxes_v2_';
     const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -47,89 +51,21 @@
         } catch (e) { /* ignore */ }
     }
 
-    // ---------- kolejka pobierania ----------
-    const queue = [];
-    let running = 0;
-    const inFlight = new Map();
-
-    function fetchBoxes(href, key) {
-        if (inFlight.has(key)) return inFlight.get(key);
-        const p = new Promise((resolve, reject) => {
-            queue.push({ href, resolve, reject });
-            processQueue();
-        });
-        inFlight.set(key, p);
-        const clear = () => inFlight.delete(key);
-        p.then(clear, clear);
-        return p;
-    }
-
-    function processQueue() {
-        while (running < MAX_CONCURRENT && queue.length) {
-            const job = queue.shift();
-            running++;
-            loadInIframe(job.href)
-                .then(job.resolve, job.reject)
-                .finally(() => {
-                    running--;
-                    processQueue();
-                });
+    // ---------- parser szczegółów zamówienia ----------
+    function hasDetailsHeader(doc) {
+        for (const th of doc.querySelectorAll('th')) {
+            const t = th.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
+            if (t === 'sku' || t === 'order items') return true;
         }
+        return false;
     }
 
-    function describeIframe(iframe) {
-        try {
-            const d = iframe.contentDocument;
-            const tables = Array.from(d.querySelectorAll('table')).map((t, i) =>
-                'T' + i + '[th=' + Array.from(t.querySelectorAll('th')).map(th => th.textContent.trim()).join('/') +
-                '; wiersze=' + t.querySelectorAll('tbody tr').length + ']');
-            return 'url=' + iframe.contentWindow.location.href +
-                ' | readyState=' + d.readyState +
-                ' | itemRows=' + d.querySelectorAll('[data-testid="shipment-sku-item-row"]').length +
-                ' | ' + tables.join(' ');
-        } catch (e) {
-            return 'brak dostępu do iframe: ' + e.message;
-        }
-    }
+    // undefined = jeszcze się ładuje
+    // null      = zamówienie załadowane, ale brak kolumny/liczby Boxes  -> "-"
+    // number    = suma Boxes
+    function parseDetails(doc, id) {
+        if (!doc.body || !doc.body.textContent.includes(id)) return undefined; // to jeszcze nie to zamówienie
 
-    function loadInIframe(href) {
-        return new Promise((resolve, reject) => {
-            const iframe = document.createElement('iframe');
-            // trzymamy iframe "na ekranie", ale niewidoczny - app może nie renderować treści poza ekranem
-            iframe.style.cssText = 'position:fixed;left:0;top:0;width:1400px;height:900px;border:0;opacity:0;pointer-events:none;z-index:-1;';
-            iframe.src = href;
-
-            const started = Date.now();
-            let lastError = null;
-            const timer = setInterval(() => {
-                try {
-                    const doc = iframe.contentDocument;
-                    if (doc) {
-                        const result = parseDetails(doc);
-                        if (result !== undefined) {
-                            clearInterval(timer);
-                            iframe.remove();
-                            resolve(result);
-                            return;
-                        }
-                    }
-                } catch (e) { lastError = e; }
-
-                if (Date.now() - started > IFRAME_TIMEOUT_MS) {
-                    clearInterval(timer);
-                    const info = describeIframe(iframe) + (lastError ? ' | błąd parsera: ' + lastError.message : '');
-                    iframe.remove();
-                    reject(new Error('timeout: ' + info));
-                }
-            }, 500);
-
-            document.body.appendChild(iframe);
-        });
-    }
-
-    // undefined = jeszcze brak danych, null = dane są, ale bez liczby, number = suma
-    function parseDetails(doc) {
-        // 1. indeks kolumny Boxes – z nagłówka w DOWOLNEJ tabeli (nagłówek bywa w osobnej tabeli niż wiersze)
         let idx = -1;
         for (const th of doc.querySelectorAll('th')) {
             if (th.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'boxes') {
@@ -137,14 +73,14 @@
                 break;
             }
         }
-        if (idx === -1) return undefined;
+        if (idx === -1) {
+            // tabela pozycji jest, ale nie ma kolumny Boxes -> nie czekamy dalej
+            return hasDetailsHeader(doc) ? null : undefined;
+        }
 
-        // 2. wiersze z pozycjami zamówienia
         let rows = Array.from(doc.querySelectorAll('[data-testid="shipment-sku-item-row"]'))
             .map(el => el.closest('tr'))
             .filter(Boolean);
-
-        // awaryjnie: wszystkie wiersze tbody poza "Total"
         if (!rows.length) {
             rows = Array.from(doc.querySelectorAll('tbody tr')).filter(tr =>
                 tr.children.length > idx && !/^total$/i.test(tr.children[0].textContent.trim()));
@@ -157,11 +93,115 @@
             const m = cell ? cell.textContent.match(/\d+/) : null;
             if (m) { sum += parseInt(m[0], 10); found = true; }
         }
-        if (!found) {
-            console.warn(LOG, 'Znaleziono wiersze, ale bez liczby w kolumnie Boxes (idx=' + idx + '):',
-                rows.map(tr => Array.from(tr.children).map(td => td.textContent.trim())));
-        }
         return found ? sum : null;
+    }
+
+    // ---------- pula iframe'ów ----------
+    const queue = [];
+    const workers = [];
+    const inFlight = new Map();
+    let idleTimer = null;
+
+    function createWorker() {
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;left:0;top:0;width:1400px;height:900px;border:0;opacity:0;pointer-events:none;z-index:-1;';
+        document.body.appendChild(iframe);
+        return { iframe, busy: false, ready: false };
+    }
+
+    function hardLoad(w, url) {
+        w.ready = false;
+        try { w.iframe.contentWindow.location.replace(url); }
+        catch (e) { w.iframe.src = url; }
+    }
+
+    function runJob(w, job) {
+        return new Promise((resolve, reject) => {
+            const url = DETAILS_URL + job.id;
+            const path = '/orders/details/' + job.id;
+            const started = Date.now();
+            let spaTried = false;
+            let lastError = null;
+
+            if (w.ready) {
+                try {
+                    const win = w.iframe.contentWindow;
+                    win.history.pushState({}, '', path);
+                    win.dispatchEvent(new win.PopStateEvent('popstate', { state: {} }));
+                    spaTried = true;
+                } catch (e) { hardLoad(w, url); }
+            } else {
+                w.iframe.src = url;
+            }
+
+            const timer = setInterval(() => {
+                try {
+                    const doc = w.iframe.contentDocument;
+                    if (doc) {
+                        const r = parseDetails(doc, job.id);
+                        if (r !== undefined) {
+                            clearInterval(timer);
+                            w.ready = true;
+                            resolve(r);
+                            return;
+                        }
+                    }
+                } catch (e) { lastError = e; }
+
+                const elapsed = Date.now() - started;
+                if (spaTried && elapsed > SPA_FALLBACK_MS) {
+                    spaTried = false;
+                    hardLoad(w, url);
+                }
+                if (elapsed > TIMEOUT_MS) {
+                    clearInterval(timer);
+                    w.ready = false;
+                    reject(new Error('timeout (' + job.id + ')' + (lastError ? ' | ' + lastError.message : '')));
+                }
+            }, POLL_MS);
+        });
+    }
+
+    function processQueue() {
+        while (queue.length) {
+            let w = workers.find(x => !x.busy);
+            if (!w && workers.length < WORKERS) {
+                w = createWorker();
+                workers.push(w);
+            }
+            if (!w) return;
+            const job = queue.shift();
+            w.busy = true;
+            runJob(w, job)
+                .then(job.resolve, job.reject)
+                .finally(() => {
+                    w.busy = false;
+                    processQueue();
+                    scheduleCleanup();
+                });
+        }
+    }
+
+    function scheduleCleanup() {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+            if (!queue.length && workers.every(w => !w.busy)) {
+                workers.forEach(w => w.iframe.remove());
+                workers.length = 0;
+            }
+        }, IDLE_CLEANUP_MS);
+    }
+
+    function fetchBoxes(id) {
+        if (inFlight.has(id)) return inFlight.get(id);
+        const p = new Promise((resolve, reject) => {
+            queue.push({ id, resolve, reject });
+            processQueue();
+        });
+        inFlight.set(id, p);
+        const clear = () => inFlight.delete(id);
+        p.then(clear, clear);
+        return p;
     }
 
     // ---------- helpery DOM (bez innerHTML) ----------
@@ -180,9 +220,16 @@
         td.title = title || '';
     }
 
-    function shipmentKey(href) {
-        const m = href.match(/\/orders\/details\/([^/?#]+)/);
-        return m ? m[1] : href;
+    // ID wysyłki z <p data-testid="shipment-id-text">Shipment ID: XXXX</p> (awaryjnie z href)
+    function getShipmentId(tr) {
+        const p = tr.querySelector('[data-testid="shipment-id-text"]');
+        if (p) {
+            const id = p.textContent.replace(/^\s*Shipment ID:\s*/i, '').trim();
+            if (id) return id;
+        }
+        const link = tr.querySelector('a[data-testid="single-order-details-link"]');
+        const m = link && link.getAttribute('href').match(/\/orders\/details\/([^/?#]+)/);
+        return m ? m[1] : null;
     }
 
     // ---------- modyfikacja strony ----------
@@ -200,10 +247,8 @@
         document.querySelectorAll('tr[data-testid^="orders-table-row-"]').forEach(tr => {
             if (tr.querySelector('td.sf-boxes-td')) return;
 
-            const link = tr.querySelector('a[data-testid="single-order-details-link"]');
-            if (!link) return;
-            const href = link.getAttribute('href');
-            const key = shipmentKey(href);
+            const id = getShipmentId(tr);
+            if (!id) return;
 
             const lastTd = tr.querySelector('td:last-child');
             const td = makeCell('td', (lastTd ? lastTd.className : '') + ' sf-boxes-td', '…');
@@ -211,18 +256,18 @@
 
             const show = val => setCell(td, val === null ? '-' : String(val));
 
-            const cached = cacheGet(key);
+            const cached = cacheGet(id);
             if (cached !== undefined) { show(cached); return; }
 
             const load = () => {
                 setCell(td, '…');
-                fetchBoxes(new URL(href, location.origin).href, key)
+                fetchBoxes(id)
                     .then(val => {
-                        cacheSet(key, val);
+                        cacheSet(id, val);
                         show(val);
                     })
                     .catch(err => {
-                        console.warn(LOG, 'Błąd pobierania', key, err.message);
+                        console.warn(LOG, 'Błąd pobierania', id, err.message);
                         setCell(td, '?', 'Błąd: ' + err.message + ' (kliknij, aby ponowić)');
                         td.style.cursor = 'pointer';
                         td.onclick = () => { td.onclick = null; td.style.cursor = ''; load(); };
@@ -244,5 +289,5 @@
 
     setInterval(safeProcess, 1500);
     safeProcess();
-    console.log(LOG, 'Skrypt Boxes uruchomiony v1.4');
+    console.log(LOG, 'Skrypt Boxes uruchomiony v1.5');
 })();
