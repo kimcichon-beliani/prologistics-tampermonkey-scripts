@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Galaxus Partner Portal – Positions highlight + VAT
 // @namespace    https://github.com/kimcichon-beliani
-// @version      1.2.2
-// @description  Wyroznia Manufacturer no., Quantity i Unit price excl w sekcji Positions oraz pokazuje kwote z doliczonym VAT
+// @version      1.3.0
+// @description  Wyroznia Manufacturer number, Quantity i Price per unit w tabeli pozycji oraz pokazuje kwote z doliczonym VAT
 // @author       kimrioter
 // @homepageURL  https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/galaxus-positions-highlight-vat.user.js
@@ -22,7 +22,7 @@
     const VAT_RATE       = 8.1;        // stawka VAT w procentach (CH = 8.1, DE = 19, PL = 23)
     const VAT_DISPLAY    = 'inline';   // 'inline' = kwota brutto w tej samej komorce (nie rozpycha tabeli)
                                        // 'column' = osobna kolumna obok (tabela dostaje poziomy scroll)
-    const SHOW_TOTAL_VAT = true;       // true = brutto liczone tez dla Total price excl
+    const SHOW_TOTAL_VAT = true;       // true = brutto liczone tez dla Total position
     const CURRENCY_HINT  = '';         // np. 'CHF' – dopisze walute przy kwocie brutto; '' = bez waluty
     const GROSS_LABEL    = '(cena do prolo)';   // podpis przy kwocie brutto; '' = bez podpisu
     const HEADER_HINT    = 'netto / brutto';    // podpis pod naglowkiem kolumn z cena; '' = bez podpisu
@@ -32,18 +32,18 @@
     const GREEN = '#1d6b38';
 
     /* ------------------------------------------------------------------
-     * NAGLOWKI, KTORYCH SZUKAMY
+     * NAGLOWKI, KTORYCH SZUKAMY (nowy layout + stare nazwy jako fallback)
      * ------------------------------------------------------------------ */
     const RE = {
-        manufacturer: /^manufacturer\s*(no|key)\.?$/i,
+        manufacturer: /^manufacturer\s*(no|key|number)\.?$/i,
         quantity:     /^quantity$/i,
-        unitExcl:     /^unit\s*price\s*excl\.?$/i,
-        totalExcl:    /^total\s*price\s*excl\.?$/i
+        unitExcl:     /^(price\s*per\s*unit|unit\s*price\s*excl\.?)$/i,
+        totalExcl:    /^(total\s*position|total\s*price\s*excl\.?)$/i
     };
 
     const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
 
-    /* Parsowanie kwoty: obsluga 1'110.06 / 1 110,06 / 1,110.06 */
+    /* Parsowanie kwoty: obsluga 74.00 / 1'110.06 / 1 110,06 / 1,110.06 */
     function parsePrice(raw) {
         let s = norm(raw).replace(/[A-Za-z]/g, '').replace(/[’'`´\s\u00A0]/g, '');
         if (s.includes(',') && s.includes('.')) {
@@ -62,12 +62,11 @@
     }
 
     /* ------------------------------------------------------------------
-     * STYLE – celowo oszczedne, zeby nie rozpychac kolumn
+     * STYLE
      * ------------------------------------------------------------------ */
     function injectStyles() {
         if (document.getElementById('tm-gx-styles')) return;
         const css = `
-            /* --- wyroznione kolumny: delikatne tlo + cienkie ramki zamiast grubych paskow --- */
             .tm-gx-key {
                 background: #fdf6f6 !important;
                 border-left: 1px solid #e6d0d0 !important;
@@ -91,14 +90,13 @@
             .tm-gx-qty {
                 text-align: center !important;
             }
-            td.tm-gx-qty, td.tm-gx-qty * {
+            td.tm-gx-qty .spo-detail {
                 font-size: 16px !important;
                 line-height: 1.4 !important;
             }
             td.tm-gx-price {
                 white-space: nowrap;
             }
-            /* --- kwota brutto pod cena netto --- */
             .tm-gx-gross {
                 display: table;
                 margin-top: 5px;
@@ -124,7 +122,6 @@
                 text-transform: none;
                 letter-spacing: 0;
             }
-            /* --- tryb 'column' --- */
             .tm-gx-vat {
                 background: #f4faf6 !important;
                 border-left: 1px solid #cde2d4 !important;
@@ -172,7 +169,6 @@
             if (map.totalExcl    < 0 && RE.totalExcl.test(t))    map.totalExcl = i;
         });
 
-        // bez ceny jednostkowej i ilosci to nie jest tabela Positions
         if (map.unitExcl < 0 || map.quantity < 0) return null;
         return map;
     }
@@ -211,61 +207,72 @@
             const m = mapHeader(row);
             if (m) { headerRow = row; map = m; break; }
         }
-        if (!headerRow || headerRow.dataset.tmGx === '1') return 0;
+        if (!headerRow) return 0;
 
         const targets = [{ after: map.unitExcl, src: map.unitExcl }];
         if (SHOW_TOTAL_VAT && map.totalExcl >= 0) {
             targets.push({ after: map.totalExcl, src: map.totalExcl });
         }
-        // malejaco – dzieki temu wstawianie kolumn nie przesuwa wczesniejszych indeksow
+        // malejaco – wstawianie kolumn nie przesuwa wczesniejszych indeksow
         targets.sort((a, b) => b.after - a.after);
 
-        // --- naglowek ---
-        addClass(headerRow.cells[map.manufacturer], 'tm-gx-key', 'tm-gx-head');
-        addClass(headerRow.cells[map.quantity],     'tm-gx-key', 'tm-gx-qty', 'tm-gx-head');
-        addClass(headerRow.cells[map.unitExcl],     'tm-gx-key', 'tm-gx-price', 'tm-gx-head');
+        // --- naglowek: tylko raz ---
+        if (headerRow.dataset.tmGx !== '1') {
+            addClass(headerRow.cells[map.manufacturer], 'tm-gx-key', 'tm-gx-head');
+            addClass(headerRow.cells[map.quantity],     'tm-gx-key', 'tm-gx-qty', 'tm-gx-head');
+            addClass(headerRow.cells[map.unitExcl],     'tm-gx-key', 'tm-gx-price', 'tm-gx-head');
 
-        targets.forEach((t) => {
-            if (VAT_DISPLAY === 'column') {
-                const cell = makeCell(headerRow.cells[t.after]);
-                cell.className = 'tm-gx-vat tm-gx-head';
-                cell.textContent = `incl. ${VAT_RATE}% VAT`;
-                headerRow.insertBefore(cell, headerRow.cells[t.after + 1] || null);
-            } else if (HEADER_HINT && headerRow.cells[t.after]) {
-                const hint = document.createElement('span');
-                hint.className = 'tm-gx-hint';
-                hint.textContent = `${HEADER_HINT} (+${VAT_RATE}% VAT)`;
-                headerRow.cells[t.after].appendChild(hint);
+            targets.forEach((t) => {
+                if (VAT_DISPLAY === 'column') {
+                    const cell = makeCell(headerRow.cells[t.after]);
+                    cell.className = 'tm-gx-vat tm-gx-head';
+                    cell.textContent = `incl. ${VAT_RATE}% VAT`;
+                    headerRow.insertBefore(cell, headerRow.cells[t.after + 1] || null);
+                } else if (HEADER_HINT && headerRow.cells[t.after]) {
+                    const hint = document.createElement('span');
+                    hint.className = 'tm-gx-hint';
+                    hint.textContent = `${HEADER_HINT} (+${VAT_RATE}% VAT)`;
+                    (headerRow.cells[t.after].querySelector('.tablesorter-header-inner') || headerRow.cells[t.after]).appendChild(hint);
+                }
+            });
+            headerRow.dataset.tmGx = '1';
+
+            if (VAT_DISPLAY === 'column' && table.parentElement && !table.parentElement.classList.contains('tm-gx-scroll')) {
+                const wrap = document.createElement('div');
+                wrap.className = 'tm-gx-scroll';
+                table.parentElement.insertBefore(wrap, table);
+                wrap.appendChild(table);
             }
-        });
-        headerRow.dataset.tmGx = '1';
-
-        // w trybie 'column' tabela robi sie szersza – dajemy jej wlasny scroll,
-        // zeby nie rozjechal sie caly layout strony
-        if (VAT_DISPLAY === 'column' && table.parentElement && !table.parentElement.classList.contains('tm-gx-scroll')) {
-            const wrap = document.createElement('div');
-            wrap.className = 'tm-gx-scroll';
-            table.parentElement.insertBefore(wrap, table);
-            wrap.appendChild(table);
         }
 
-        // --- wiersze z danymi ---
+        // w trybie 'column' naglowek ma dodatkowe komorki – dane porownujemy z oryginalna liczba kolumn
+        const baseCount = map.count;
+        const colShift = (VAT_DISPLAY === 'column') ? targets.length : 0;
+
+        // --- wiersze z danymi (sprawdzane przy kazdym przebiegu – strona odswieza wiersze po zapisie) ---
         let done = 0;
         const startIdx = rows.indexOf(headerRow) + 1;
 
         for (let i = startIdx; i < rows.length; i++) {
             const row = rows[i];
-            if (row.dataset.tmGx === '1') continue;
-            if (row.cells.length < map.count) continue;   // wiersze "Results 1-1 of 1", pagery itd.
+            if (VAT_DISPLAY === 'column' && row.dataset.tmGx === '1') continue;
+            if (row.cells.length < baseCount) continue;   // wiersze pagerow, podsumowan itp.
 
             addClass(row.cells[map.manufacturer], 'tm-gx-key');
             addClass(row.cells[map.quantity],     'tm-gx-key', 'tm-gx-qty');
             addClass(row.cells[map.unitExcl],     'tm-gx-key', 'tm-gx-price');
 
-            // wartosci odczytujemy PRZED modyfikacja komorek
-            const values = targets.map((t) => parsePrice(row.cells[t.src] ? row.cells[t.src].textContent : ''));
+            // w trybie inline pomijamy komorki, ktore juz maja kwote brutto
+            const todo = targets.filter((t) => {
+                const c = row.cells[t.src];
+                return c && (VAT_DISPLAY === 'column' || !c.querySelector('.tm-gx-gross'));
+            });
+            if (!todo.length) continue;
 
-            targets.forEach((t, idx) => {
+            // wartosci odczytujemy PRZED modyfikacja komorek
+            const values = todo.map((t) => parsePrice(row.cells[t.src].textContent));
+
+            todo.forEach((t, idx) => {
                 const net = values[idx];
 
                 if (VAT_DISPLAY === 'column') {
@@ -277,7 +284,7 @@
                         cell.appendChild(grossSpan(net, false));
                     }
                     row.insertBefore(cell, row.cells[t.after + 1] || null);
-                } else if (net !== null && row.cells[t.src]) {
+                } else if (net !== null) {
                     row.cells[t.src].appendChild(grossSpan(net, true));
                 }
             });
@@ -308,7 +315,7 @@
     }
 
     /* ------------------------------------------------------------------
-     * START + obserwacja zmian (strona przeladowuje sekcje po Search/Save)
+     * START + obserwacja zmian (strona przeladowuje wiersze po edycji/zapisie)
      * ------------------------------------------------------------------ */
     run();
 
