@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Seller Flex - kolumna Boxes
 // @namespace    kimcichon-beliani
-// @version      1.2
+// @version      1.3
 // @description  Dodaje kolumnę "Boxes" do listy zamówień Seller Flex (pobiera dane ze szczegółów zamówienia)
 // @author       kimrioter
 // @match        https://sellerflex.amazon.de/orders/all*
@@ -17,20 +17,31 @@
     const LOG = '[TM script by kimrioter]';
     const MAX_CONCURRENT = 3;
     const IFRAME_TIMEOUT_MS = 25000;
-    const CACHE_PREFIX = 'sf_boxes_';
+    const OLD_CACHE_PREFIX = 'sf_boxes_';
+    const CACHE_PREFIX = 'sf_boxes_v2_';
     const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-    // ---------- cache ----------
+    // ---------- czyszczenie starego cache (v1.0 - v1.2) ----------
+    try {
+        Object.keys(localStorage).forEach(k => {
+            if (k.startsWith(OLD_CACHE_PREFIX) && !k.startsWith(CACHE_PREFIX)) {
+                localStorage.removeItem(k);
+            }
+        });
+    } catch (e) { /* ignore */ }
+
+    // ---------- cache (tylko liczby) ----------
     function cacheGet(key) {
         try {
             const raw = localStorage.getItem(CACHE_PREFIX + key);
             if (!raw) return undefined;
             const obj = JSON.parse(raw);
             if (Date.now() - obj.t > CACHE_TTL_MS) return undefined;
-            return obj.v; // number albo 'none'
+            return typeof obj.v === 'number' ? obj.v : undefined;
         } catch (e) { return undefined; }
     }
     function cacheSet(key, value) {
+        if (typeof value !== 'number') return; // nie cache'ujemy braków ani błędów
         try {
             localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: value }));
         } catch (e) { /* ignore */ }
@@ -91,7 +102,7 @@
                 try {
                     const doc = iframe.contentDocument;
                     if (doc) {
-                        const result = parseDetails(doc);
+                        const result = parseDetails(doc, href);
                         if (result !== undefined) {
                             clearInterval(timer);
                             iframe.remove();
@@ -114,22 +125,28 @@
     }
 
     // undefined = jeszcze brak danych, null = tabela jest, ale bez liczby, number = suma
-    function parseDetails(doc) {
+    function parseDetails(doc, href) {
         const tables = Array.from(doc.querySelectorAll('table'));
         for (const table of tables) {
             const ths = Array.from(table.querySelectorAll('thead th'));
-            const idx = ths.findIndex(th => th.textContent.trim().toLowerCase() === 'boxes');
+            const idx = ths.findIndex(th => th.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'boxes');
             if (idx === -1) continue;
 
             const rows = Array.from(table.querySelectorAll('tbody tr'))
                 .filter(tr => tr.querySelectorAll('td').length > idx)
                 .filter(tr => !/^total$/i.test(tr.querySelector('td').textContent.trim()));
-            if (!rows.length) return undefined;
+            if (!rows.length) return undefined; // wiersze jeszcze się nie wyrenderowały
 
             let sum = 0, found = false;
             for (const tr of rows) {
-                const n = parseInt(tr.querySelectorAll('td')[idx].textContent.trim(), 10);
-                if (!isNaN(n)) { sum += n; found = true; }
+                const txt = tr.querySelectorAll('td')[idx].textContent;
+                const m = txt.match(/\d+/);
+                if (m) { sum += parseInt(m[0], 10); found = true; }
+            }
+            if (!found) {
+                console.warn(LOG, 'Tabela z Boxes jest, ale bez liczby:', href,
+                    'nagłówki=', ths.map(t => t.textContent.trim()),
+                    'komórki=', rows.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim())));
             }
             return found ? sum : null;
         }
@@ -181,7 +198,7 @@
             const td = makeCell('td', (lastTd ? lastTd.className : '') + ' sf-boxes-td', '…');
             tr.appendChild(td);
 
-            const show = val => setCell(td, (val === null || val === 'none') ? '-' : String(val));
+            const show = val => setCell(td, val === null ? '-' : String(val));
 
             const cached = cacheGet(key);
             if (cached !== undefined) { show(cached); return; }
@@ -190,7 +207,7 @@
                 setCell(td, '…');
                 fetchBoxes(new URL(href, location.origin).href, key)
                     .then(val => {
-                        cacheSet(key, val === null ? 'none' : val);
+                        cacheSet(key, val);
                         show(val);
                     })
                     .catch(err => {
@@ -216,5 +233,5 @@
 
     setInterval(safeProcess, 1500);
     safeProcess();
-    console.log(LOG, 'Skrypt Boxes uruchomiony v1.2');
+    console.log(LOG, 'Skrypt Boxes uruchomiony v1.3');
 })();
