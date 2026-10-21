@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Seller Flex - kolumna Boxes
 // @namespace    kimcichon-beliani
-// @version      1.1
+// @version      1.2
 // @description  Dodaje kolumnę "Boxes" do listy zamówień Seller Flex (pobiera dane ze szczegółów zamówienia)
 // @author       kimrioter
 // @match        https://sellerflex.amazon.de/orders/all*
@@ -15,21 +15,20 @@
     'use strict';
 
     const LOG = '[TM script by kimrioter]';
-    const DETAILS_TABLE_SELECTOR = 'table.awui-order-details-table';
-    const MAX_CONCURRENT = 3;          // ile iframe'ów naraz
-    const IFRAME_TIMEOUT_MS = 20000;   // max czas oczekiwania na szczegóły
+    const MAX_CONCURRENT = 3;
+    const IFRAME_TIMEOUT_MS = 25000;
     const CACHE_PREFIX = 'sf_boxes_';
-    const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+    const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
     // ---------- cache ----------
     function cacheGet(key) {
         try {
             const raw = localStorage.getItem(CACHE_PREFIX + key);
-            if (!raw) return null;
+            if (!raw) return undefined;
             const obj = JSON.parse(raw);
-            if (Date.now() - obj.t > CACHE_TTL_MS) return null;
-            return obj.v;
-        } catch (e) { return null; }
+            if (Date.now() - obj.t > CACHE_TTL_MS) return undefined;
+            return obj.v; // number albo 'none'
+        } catch (e) { return undefined; }
     }
     function cacheSet(key, value) {
         try {
@@ -67,10 +66,24 @@
         }
     }
 
+    function describeIframe(iframe) {
+        try {
+            const d = iframe.contentDocument;
+            const w = iframe.contentWindow;
+            return 'url=' + (w ? w.location.href : '?') +
+                ' | title=' + (d ? d.title : '?') +
+                ' | readyState=' + (d ? d.readyState : '?') +
+                ' | tables=' + (d ? d.querySelectorAll('table').length : '?') +
+                ' | text=' + (d && d.body ? d.body.innerText.slice(0, 150).replace(/\s+/g, ' ') : '?');
+        } catch (e) {
+            return 'brak dostępu do iframe: ' + e.message;
+        }
+    }
+
     function loadInIframe(href) {
         return new Promise((resolve, reject) => {
             const iframe = document.createElement('iframe');
-            iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:800px;visibility:hidden;';
+            iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1400px;height:900px;border:0;';
             iframe.src = href;
 
             const started = Date.now();
@@ -86,45 +99,44 @@
                             return;
                         }
                     }
-                } catch (e) { /* iframe jeszcze się ładuje */ }
+                } catch (e) { /* jeszcze się ładuje */ }
 
                 if (Date.now() - started > IFRAME_TIMEOUT_MS) {
                     clearInterval(timer);
+                    const info = describeIframe(iframe);
                     iframe.remove();
-                    reject(new Error('timeout'));
+                    reject(new Error('timeout: ' + info));
                 }
-            }, 400);
+            }, 500);
 
             document.body.appendChild(iframe);
         });
     }
 
-    // undefined = tabela jeszcze się nie wyrenderowała
-    // null      = tabela jest, ale brak liczby w Boxes
-    // number    = suma Boxes
+    // undefined = jeszcze brak danych, null = tabela jest, ale bez liczby, number = suma
     function parseDetails(doc) {
-        const table = doc.querySelector(DETAILS_TABLE_SELECTOR);
-        if (!table) return undefined;
+        const tables = Array.from(doc.querySelectorAll('table'));
+        for (const table of tables) {
+            const ths = Array.from(table.querySelectorAll('thead th'));
+            const idx = ths.findIndex(th => th.textContent.trim().toLowerCase() === 'boxes');
+            if (idx === -1) continue;
 
-        const ths = Array.from(table.querySelectorAll('thead th'));
-        const idx = ths.findIndex(th => th.textContent.trim() === 'Boxes');
-        if (idx === -1) return undefined;
+            const rows = Array.from(table.querySelectorAll('tbody tr'))
+                .filter(tr => tr.querySelectorAll('td').length > idx)
+                .filter(tr => !/^total$/i.test(tr.querySelector('td').textContent.trim()));
+            if (!rows.length) return undefined;
 
-        const itemRows = Array.from(table.querySelectorAll('tbody tr'))
-            .filter(tr => tr.querySelector('[data-testid="shipment-sku-item-row"]'));
-        if (!itemRows.length) return undefined;
-
-        let sum = 0;
-        let found = false;
-        for (const tr of itemRows) {
-            const cell = tr.querySelectorAll('td')[idx];
-            const n = parseInt((cell ? cell.textContent : '').trim(), 10);
-            if (!isNaN(n)) { sum += n; found = true; }
+            let sum = 0, found = false;
+            for (const tr of rows) {
+                const n = parseInt(tr.querySelectorAll('td')[idx].textContent.trim(), 10);
+                if (!isNaN(n)) { sum += n; found = true; }
+            }
+            return found ? sum : null;
         }
-        return found ? sum : null;
+        return undefined;
     }
 
-    // ---------- helpery DOM (bez innerHTML – Trusted Types) ----------
+    // ---------- helpery DOM (bez innerHTML) ----------
     function makeCell(tag, className, text) {
         const el = document.createElement(tag);
         el.className = className;
@@ -145,29 +157,19 @@
         return m ? m[1] : href;
     }
 
-    function findTable() {
-        let table = document.querySelector('table[data-testid="all-orders-table"]');
-        if (table) return table;
-        const th = document.querySelector('[data-testid="orders-header-cell-orderId"]');
-        return th ? th.closest('table') : null;
-    }
-
-    // ---------- modyfikacja tabeli na liście ----------
-    function processTable() {
-        const table = findTable();
-        if (!table) return;
-
-        const headRow = table.querySelector('thead tr');
-        if (headRow && !headRow.querySelector('th.sf-boxes-th')) {
+    // ---------- modyfikacja strony ----------
+    function processHeaders() {
+        document.querySelectorAll('tr[data-testid="orders-table-header-row"]').forEach(headRow => {
+            if (headRow.querySelector('th.sf-boxes-th')) return;
             const lastTh = headRow.querySelector('th:last-child');
-            const cls = (lastTh ? lastTh.className : '') + ' sf-boxes-th';
-            const th = makeCell('th', cls, 'Boxes');
+            const th = makeCell('th', (lastTh ? lastTh.className : '') + ' sf-boxes-th', 'Boxes');
             th.setAttribute('scope', 'col');
             headRow.appendChild(th);
-            console.log(LOG, 'Dodano nagłówek Boxes');
-        }
+        });
+    }
 
-        table.querySelectorAll('tbody tr').forEach(tr => {
+    function processRows() {
+        document.querySelectorAll('tr[data-testid^="orders-table-row-"]').forEach(tr => {
             if (tr.querySelector('td.sf-boxes-td')) return;
 
             const link = tr.querySelector('a[data-testid="single-order-details-link"]');
@@ -179,13 +181,10 @@
             const td = makeCell('td', (lastTd ? lastTd.className : '') + ' sf-boxes-td', '…');
             tr.appendChild(td);
 
-            const show = val => setCell(td, val === null ? '-' : String(val));
+            const show = val => setCell(td, (val === null || val === 'none') ? '-' : String(val));
 
             const cached = cacheGet(key);
-            if (cached !== null && cached !== undefined) {
-                show(cached === 'none' ? null : cached);
-                return;
-            }
+            if (cached !== undefined) { show(cached); return; }
 
             const load = () => {
                 setCell(td, '…');
@@ -195,8 +194,8 @@
                         show(val);
                     })
                     .catch(err => {
-                        console.warn(LOG, 'Błąd pobierania', key, err);
-                        setCell(td, '?', 'Błąd pobierania – kliknij, aby spróbować ponownie');
+                        console.warn(LOG, 'Błąd pobierania', key, err.message);
+                        setCell(td, '?', 'Błąd: ' + err.message + ' (kliknij, aby ponowić)');
                         td.style.cursor = 'pointer';
                         td.onclick = () => { td.onclick = null; td.style.cursor = ''; load(); };
                     });
@@ -206,10 +205,9 @@
     }
 
     function safeProcess() {
-        try { processTable(); } catch (e) { console.error(LOG, e); }
+        try { processHeaders(); processRows(); } catch (e) { console.error(LOG, e); }
     }
 
-    // ---------- obserwator + zabezpieczenie interwałem ----------
     let debounce = null;
     new MutationObserver(() => {
         clearTimeout(debounce);
@@ -218,5 +216,5 @@
 
     setInterval(safeProcess, 1500);
     safeProcess();
-    console.log(LOG, 'Skrypt Boxes uruchomiony');
+    console.log(LOG, 'Skrypt Boxes uruchomiony v1.2');
 })();
