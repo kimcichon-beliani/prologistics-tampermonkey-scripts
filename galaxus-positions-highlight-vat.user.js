@@ -1,14 +1,15 @@
 // ==UserScript==
 // @name         Galaxus Partner Portal – Positions highlight + VAT
 // @namespace    https://github.com/kimcichon-beliani
-// @version      1.3.0
-// @description  Wyroznia Manufacturer number, Quantity i Price per unit w tabeli pozycji oraz pokazuje kwote z doliczonym VAT
+// @version      1.4.0
+// @description  Wyroznia Manufacturer number, Quantity i Price per unit w tabeli pozycji + kwota z VAT; na OrderOverview dopisuje godzine zamowienia pod data
 // @author       kimrioter
 // @homepageURL  https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/galaxus-positions-highlight-vat.user.js
 // @downloadURL  https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/galaxus-positions-highlight-vat.user.js
 // @match        https://partner.galaxus.ch/*/SupplierPurchaseOrder*
 // @match        https://partner.galaxus.ch/*/SupplierPurchaseOrder/*
+// @match        https://partner.galaxus.ch/*/OrderOverview*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -295,6 +296,118 @@
         return done;
     }
 
+    /* ------------------------------------------------------------------
+     * ORDER OVERVIEW – godzina zamowienia pod data
+     * Lista pokazuje tylko date; godzine pobieramy ze strony zamowienia
+     * (/SupplierPurchaseOrder/<id>) i dopisujemy w komorce "Order date".
+     * ------------------------------------------------------------------ */
+    const SHOW_ORDER_TIME = true;
+    const TIME_CACHE_PREFIX = 'tmgx-order-time:';
+    const MAX_PARALLEL = 3;           // ile zamowien pobieramy rownolegle
+    let activeFetches = 0;
+    const fetchQueue = [];
+
+    function cacheGet(id) {
+        try { return localStorage.getItem(TIME_CACHE_PREFIX + id); } catch (e) { return null; }
+    }
+    function cacheSet(id, val) {
+        try { localStorage.setItem(TIME_CACHE_PREFIX + id, val); } catch (e) { /* ignore */ }
+    }
+
+    function extractOrderTime(html, dateStr) {
+        const text = html
+            .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;|&#160;/g, ' ')
+            .replace(/\s+/g, ' ');
+        const T = '[\\s,;|-]*(?:at|um|o)?\\s*(\\d{1,2}:\\d{2})(?::\\d{2})?';
+
+        // 1) "Order date 21.10.2026 14:32"
+        let m = text.match(new RegExp('Order date[^0-9]{0,20}(\\d{2}\\.\\d{2}\\.\\d{4})' + T, 'i'));
+        if (m) return m[2];
+
+        // 2) dowolne wystapienie daty z listy tuz przed godzina
+        if (dateStr) {
+            m = text.match(new RegExp(dateStr.replace(/\./g, '\\.') + T));
+            if (m) return m[1];
+        }
+        return null;
+    }
+
+    function showTime(cell, time) {
+        cell.dataset.tmGxTime = 'done';
+        if (cell.querySelector('.tm-gx-time')) return;
+        const span = document.createElement('span');
+        span.className = 'tm-gx-time';
+        span.textContent = time;
+        span.style.cssText = `display:block;margin-top:2px;font-weight:700;color:${BRAND};white-space:nowrap;`;
+        cell.appendChild(span);
+    }
+
+    async function loadTime(id, url, dateStr, cell) {
+        try {
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const html = await res.text();
+            const time = extractOrderTime(html, dateStr);
+            if (time) {
+                cacheSet(id, time);
+                showTime(cell, time);
+            } else {
+                cell.dataset.tmGxTime = 'none';
+                console.warn(`${LOG} nie znaleziono godziny w zamowieniu ${id}`);
+            }
+        } catch (e) {
+            cell.dataset.tmGxTime = 'fail';
+            console.warn(`${LOG} blad pobierania zamowienia ${id}:`, e);
+        }
+    }
+
+    function pump() {
+        while (activeFetches < MAX_PARALLEL && fetchQueue.length) {
+            const job = fetchQueue.shift();
+            activeFetches++;
+            job().finally(() => { activeFetches--; pump(); });
+        }
+    }
+
+    function processOrderOverview() {
+        if (!SHOW_ORDER_TIME || !/OrderOverview/i.test(location.pathname)) return;
+
+        document.querySelectorAll('table').forEach((table) => {
+            const rows = Array.from(table.rows || []);
+            const headRow = rows.find((r) => r.querySelector('th'));
+            if (!headRow) return;
+
+            const heads = Array.from(headRow.cells).map((c) => norm(c.textContent));
+            const idIdx   = heads.findIndex((t) => /^order\s*id$/i.test(t));
+            const dateIdx = heads.findIndex((t) => /^order\s*date$/i.test(t));
+            if (idIdx < 0 || dateIdx < 0) return;
+
+            rows.forEach((row) => {
+                if (row === headRow || row.cells.length < heads.length) return;
+
+                const dateCell = row.cells[dateIdx];
+                if (!dateCell || dateCell.dataset.tmGxTime) return;
+
+                const link = row.cells[idIdx].querySelector('a[href*="SupplierPurchaseOrder"]');
+                if (!link) return;
+                const idMatch = link.getAttribute('href').match(/SupplierPurchaseOrder\/(\d+)/);
+                if (!idMatch) return;
+                const id = idMatch[1];
+
+                const dateStr = (norm(dateCell.textContent).match(/\d{2}\.\d{2}\.\d{4}/) || [''])[0];
+
+                dateCell.dataset.tmGxTime = 'pending';
+                const cached = cacheGet(id);
+                if (cached) { showTime(dateCell, cached); return; }
+
+                fetchQueue.push(() => loadTime(id, link.href, dateStr, dateCell));
+            });
+        });
+        pump();
+    }
+
     let busy = false;
 
     function run() {
@@ -304,6 +417,7 @@
             injectStyles();
             let total = 0;
             document.querySelectorAll('table').forEach((t) => { total += processTable(t); });
+            processOrderOverview();
             if (total > 0) {
                 console.log(`${LOG} Positions: podswietlono kolumny i doliczono ${VAT_RATE}% VAT w ${total} wierszu/ach (tryb: ${VAT_DISPLAY}).`);
             }
