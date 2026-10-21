@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Galaxus Partner Portal – Positions highlight + VAT
 // @namespace    https://github.com/kimcichon-beliani
-// @version      1.4.0
-// @description  Wyroznia Manufacturer number, Quantity i Price per unit w tabeli pozycji + kwota z VAT; na OrderOverview dopisuje godzine zamowienia pod data
+// @version      1.5.0
+// @description  Wyroznia Manufacturer number, Quantity i Price per unit w tabeli pozycji + kwota z VAT; na OrderOverview dopisuje godzine zamowienia i dodaje kolumne "Checked?" z zapamietywanymi checkboxami
 // @author       kimrioter
 // @homepageURL  https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
 // @updateURL    https://raw.githubusercontent.com/kimcichon-beliani/prologistics-tampermonkey-scripts/main/galaxus-positions-highlight-vat.user.js
@@ -142,6 +142,19 @@
                 border-top: none;
                 margin-top: 0;
                 padding-top: 0;
+            }
+            .tm-gx-chk-cell, .tm-gx-chk-head {
+                text-align: center !important;
+                width: 70px;
+            }
+            .tm-gx-chk-cell input[type="checkbox"] {
+                width: 18px;
+                height: 18px;
+                cursor: pointer;
+                accent-color: ${GREEN};
+            }
+            tr.tm-gx-row-checked > td {
+                background: #eaf5ee !important;
             }
             .tm-gx-scroll {
                 overflow-x: auto;
@@ -408,6 +421,76 @@
         pump();
     }
 
+    /* ------------------------------------------------------------------
+     * ORDER OVERVIEW – kolumna "Checked?" z zapamietywanymi checkboxami
+     * Stan trzymany w localStorage (klucz tmgx-checked-orders): { "<id>": timestamp }
+     * ------------------------------------------------------------------ */
+    const SHOW_CHECKED  = true;
+    const CHECKED_TITLE = 'Checked?';
+    const CHECKED_KEY   = 'tmgx-checked-orders';
+
+    function loadChecked() {
+        try { return JSON.parse(localStorage.getItem(CHECKED_KEY) || '{}') || {}; } catch (e) { return {}; }
+    }
+    function saveChecked(map) {
+        try { localStorage.setItem(CHECKED_KEY, JSON.stringify(map)); } catch (e) { console.warn(`${LOG} nie mozna zapisac Checked:`, e); }
+    }
+
+    function processOrderChecked() {
+        if (!SHOW_CHECKED || !/OrderOverview/i.test(location.pathname)) return;
+
+        const checked = loadChecked();
+
+        document.querySelectorAll('table').forEach((table) => {
+            const rows = Array.from(table.rows || []);
+            const headRow = rows.find((r) => r.querySelector('th'));
+            if (!headRow) return;
+
+            const heads = Array.from(headRow.cells).map((c) => norm(c.textContent));
+            const idIdx = heads.findIndex((t) => /^order\s*id$/i.test(t));
+            if (idIdx < 0) return;
+
+            // naglowek kolumny (raz)
+            const hadHead = !!headRow.querySelector('th.tm-gx-chk-head');
+            if (!hadHead) {
+                const th = document.createElement('th');
+                th.className = 'index tm-gx-chk-head';
+                th.textContent = CHECKED_TITLE;
+                headRow.appendChild(th);
+            }
+            const baseCount = hadHead ? heads.length - 1 : heads.length;
+
+            rows.forEach((row) => {
+                if (row === headRow || row.cells.length < baseCount) return;
+                if (row.querySelector('td.tm-gx-chk-cell')) return;   // juz ma checkbox
+
+                const link = row.cells[idIdx].querySelector('a[href*="SupplierPurchaseOrder"]');
+                const idMatch = link && link.getAttribute('href').match(/SupplierPurchaseOrder\/(\d+)/);
+                if (!idMatch) return;
+                const id = idMatch[1];
+
+                const td = document.createElement('td');
+                td.className = 'tm-gx-chk-cell';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.title = 'Zaznacz, jesli to zamowienie bylo juz sprawdzone';
+                cb.checked = !!checked[id];
+                row.classList.toggle('tm-gx-row-checked', cb.checked);
+
+                cb.addEventListener('change', () => {
+                    const map = loadChecked();   // swiezy stan (np. z drugiej karty)
+                    if (cb.checked) map[id] = Date.now(); else delete map[id];
+                    saveChecked(map);
+                    row.classList.toggle('tm-gx-row-checked', cb.checked);
+                });
+
+                td.appendChild(cb);
+                row.appendChild(td);
+            });
+        });
+    }
+
     let busy = false;
 
     function run() {
@@ -417,6 +500,7 @@
             injectStyles();
             let total = 0;
             document.querySelectorAll('table').forEach((t) => { total += processTable(t); });
+            processOrderChecked();    // najpierw checkboxy (dodaja kolumne), potem godziny
             processOrderOverview();
             if (total > 0) {
                 console.log(`${LOG} Positions: podswietlono kolumny i doliczono ${VAT_RATE}% VAT w ${total} wierszu/ach (tryb: ${VAT_DISPLAY}).`);
