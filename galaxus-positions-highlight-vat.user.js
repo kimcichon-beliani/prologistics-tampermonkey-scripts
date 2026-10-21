@@ -335,8 +335,8 @@
             .replace(/\s+/g, ' ');
         const T = '[\\s,;|-]*(?:at|um|o)?\\s*(\\d{1,2}:\\d{2})(?::\\d{2})?';
 
-        // 1) "Order date 21.10.2026 14:32"
-        let m = text.match(new RegExp('Order date[^0-9]{0,20}(\\d{2}\\.\\d{2}\\.\\d{4})' + T, 'i'));
+        // 1) "Order placement date 21.10.2026 12:42" (etykieta w naglowku zamowienia)
+        let m = text.match(new RegExp('Order placement date[^0-9]{0,20}(\\d{2}\\.\\d{2}\\.\\d{4})' + T, 'i'));
         if (m) return m[2];
 
         // 2) dowolne wystapienie daty z listy tuz przed godzina
