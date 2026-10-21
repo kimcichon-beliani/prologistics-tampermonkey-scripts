@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Seller Flex - kolumna Boxes
 // @namespace    kimcichon-beliani
-// @version      1.3
+// @version      1.4
 // @description  Dodaje kolumnę "Boxes" do listy zamówień Seller Flex (pobiera dane ze szczegółów zamówienia)
 // @author       kimrioter
 // @match        https://sellerflex.amazon.de/orders/all*
@@ -41,7 +41,7 @@
         } catch (e) { return undefined; }
     }
     function cacheSet(key, value) {
-        if (typeof value !== 'number') return; // nie cache'ujemy braków ani błędów
+        if (typeof value !== 'number') return;
         try {
             localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: value }));
         } catch (e) { /* ignore */ }
@@ -80,12 +80,13 @@
     function describeIframe(iframe) {
         try {
             const d = iframe.contentDocument;
-            const w = iframe.contentWindow;
-            return 'url=' + (w ? w.location.href : '?') +
-                ' | title=' + (d ? d.title : '?') +
-                ' | readyState=' + (d ? d.readyState : '?') +
-                ' | tables=' + (d ? d.querySelectorAll('table').length : '?') +
-                ' | text=' + (d && d.body ? d.body.innerText.slice(0, 150).replace(/\s+/g, ' ') : '?');
+            const tables = Array.from(d.querySelectorAll('table')).map((t, i) =>
+                'T' + i + '[th=' + Array.from(t.querySelectorAll('th')).map(th => th.textContent.trim()).join('/') +
+                '; wiersze=' + t.querySelectorAll('tbody tr').length + ']');
+            return 'url=' + iframe.contentWindow.location.href +
+                ' | readyState=' + d.readyState +
+                ' | itemRows=' + d.querySelectorAll('[data-testid="shipment-sku-item-row"]').length +
+                ' | ' + tables.join(' ');
         } catch (e) {
             return 'brak dostępu do iframe: ' + e.message;
         }
@@ -94,15 +95,17 @@
     function loadInIframe(href) {
         return new Promise((resolve, reject) => {
             const iframe = document.createElement('iframe');
-            iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1400px;height:900px;border:0;';
+            // trzymamy iframe "na ekranie", ale niewidoczny - app może nie renderować treści poza ekranem
+            iframe.style.cssText = 'position:fixed;left:0;top:0;width:1400px;height:900px;border:0;opacity:0;pointer-events:none;z-index:-1;';
             iframe.src = href;
 
             const started = Date.now();
+            let lastError = null;
             const timer = setInterval(() => {
                 try {
                     const doc = iframe.contentDocument;
                     if (doc) {
-                        const result = parseDetails(doc, href);
+                        const result = parseDetails(doc);
                         if (result !== undefined) {
                             clearInterval(timer);
                             iframe.remove();
@@ -110,11 +113,11 @@
                             return;
                         }
                     }
-                } catch (e) { /* jeszcze się ładuje */ }
+                } catch (e) { lastError = e; }
 
                 if (Date.now() - started > IFRAME_TIMEOUT_MS) {
                     clearInterval(timer);
-                    const info = describeIframe(iframe);
+                    const info = describeIframe(iframe) + (lastError ? ' | błąd parsera: ' + lastError.message : '');
                     iframe.remove();
                     reject(new Error('timeout: ' + info));
                 }
@@ -124,33 +127,41 @@
         });
     }
 
-    // undefined = jeszcze brak danych, null = tabela jest, ale bez liczby, number = suma
-    function parseDetails(doc, href) {
-        const tables = Array.from(doc.querySelectorAll('table'));
-        for (const table of tables) {
-            const ths = Array.from(table.querySelectorAll('thead th'));
-            const idx = ths.findIndex(th => th.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'boxes');
-            if (idx === -1) continue;
-
-            const rows = Array.from(table.querySelectorAll('tbody tr'))
-                .filter(tr => tr.querySelectorAll('td').length > idx)
-                .filter(tr => !/^total$/i.test(tr.querySelector('td').textContent.trim()));
-            if (!rows.length) return undefined; // wiersze jeszcze się nie wyrenderowały
-
-            let sum = 0, found = false;
-            for (const tr of rows) {
-                const txt = tr.querySelectorAll('td')[idx].textContent;
-                const m = txt.match(/\d+/);
-                if (m) { sum += parseInt(m[0], 10); found = true; }
+    // undefined = jeszcze brak danych, null = dane są, ale bez liczby, number = suma
+    function parseDetails(doc) {
+        // 1. indeks kolumny Boxes – z nagłówka w DOWOLNEJ tabeli (nagłówek bywa w osobnej tabeli niż wiersze)
+        let idx = -1;
+        for (const th of doc.querySelectorAll('th')) {
+            if (th.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'boxes') {
+                idx = Array.prototype.indexOf.call(th.parentElement.children, th);
+                break;
             }
-            if (!found) {
-                console.warn(LOG, 'Tabela z Boxes jest, ale bez liczby:', href,
-                    'nagłówki=', ths.map(t => t.textContent.trim()),
-                    'komórki=', rows.map(tr => Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim())));
-            }
-            return found ? sum : null;
         }
-        return undefined;
+        if (idx === -1) return undefined;
+
+        // 2. wiersze z pozycjami zamówienia
+        let rows = Array.from(doc.querySelectorAll('[data-testid="shipment-sku-item-row"]'))
+            .map(el => el.closest('tr'))
+            .filter(Boolean);
+
+        // awaryjnie: wszystkie wiersze tbody poza "Total"
+        if (!rows.length) {
+            rows = Array.from(doc.querySelectorAll('tbody tr')).filter(tr =>
+                tr.children.length > idx && !/^total$/i.test(tr.children[0].textContent.trim()));
+        }
+        if (!rows.length) return undefined;
+
+        let sum = 0, found = false;
+        for (const tr of rows) {
+            const cell = tr.children[idx];
+            const m = cell ? cell.textContent.match(/\d+/) : null;
+            if (m) { sum += parseInt(m[0], 10); found = true; }
+        }
+        if (!found) {
+            console.warn(LOG, 'Znaleziono wiersze, ale bez liczby w kolumnie Boxes (idx=' + idx + '):',
+                rows.map(tr => Array.from(tr.children).map(td => td.textContent.trim())));
+        }
+        return found ? sum : null;
     }
 
     // ---------- helpery DOM (bez innerHTML) ----------
@@ -233,5 +244,5 @@
 
     setInterval(safeProcess, 1500);
     safeProcess();
-    console.log(LOG, 'Skrypt Boxes uruchomiony v1.3');
+    console.log(LOG, 'Skrypt Boxes uruchomiony v1.4');
 })();
