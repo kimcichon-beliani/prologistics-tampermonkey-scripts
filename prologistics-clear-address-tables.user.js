@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics - Clear address tables
 // @namespace    kimcichon-beliani
-// @version      1.0
-// @description  Adds "Clear" buttons above the billing and delivery address tables on order.php
+// @version      1.1
+// @description  Adds small "Clear" buttons above the billing and delivery address tables on order.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/order.php*
 // @grant        none
@@ -16,8 +16,8 @@
     // Tabele rozpoznawane po klasach CSS, nie po tekście nagłówka,
     // więc działa w każdym języku (Billing address / Faturação / ...)
     const TABLES = [
-        { selector: 'table.billing',  label: '🗑 Wyczyść dane (billing)' },
-        { selector: 'table.shipping', label: '🗑 Wyczyść dane (delivery)' },
+        { selector: 'table.billing',  label: 'Clear' },
+        { selector: 'table.shipping', label: 'Clear' },
     ];
 
     function fire(el, type) {
@@ -49,8 +49,9 @@
         btn.type = 'button'; // żeby nie wysyłał formularza
         btn.textContent = label;
         btn.style.cssText =
-            'display:block;margin:4px 0 8px 0;padding:4px 10px;cursor:pointer;' +
-            'background:#750000;color:#fff;border:0;border-radius:3px;font-weight:bold;';
+            'display:block;margin:2px 0 4px 0;padding:0 6px;height:16px;line-height:14px;' +
+            'font-size:10px;cursor:pointer;background:#750000;color:#fff;' +
+            'border:0;border-radius:2px;font-weight:normal;';
         btn.addEventListener('click', e => {
             e.preventDefault();
             clearTable(table);
