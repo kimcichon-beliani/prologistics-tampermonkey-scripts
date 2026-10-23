@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Total Cycle Time – kolumna Ticket
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.2.0
-// @description  Dodaje kolumnę "Ticket" (między # a Auftrag#), oznacza ✔️ zamówienia z ticketu (RMA) i pokazuje podsumowanie pod wykresem
+// @version      1.3.0
+// @description  Dodaje kolumnę "Ticket" (między # a Auftrag#), oznacza ✔️ zamówienia z ticketu (RMA) pokazuje podsumowanie pod wykresem i dodaje przycisk Yesterday
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @grant        none
@@ -275,6 +275,49 @@
             const count = table.querySelectorAll('tr[data-ticket-order="1"]').length;
             console.log(LOG, 'Ticket column: gotowe, ticketowych:', count, '| niezgodności:', mismatches);
         });
+    }
+
+    // ---------- przycisk "Yesterday" między "Today" a "Last 7 days" ----------
+    function formatLocalDate(d) {
+        const pad = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function addYesterdayButton() {
+        if (document.getElementById('tm-yesterday')) return true;
+        const today = document.getElementById('today');
+        const week = document.getElementById('week');
+        const from = document.getElementById('from');
+        const to = document.getElementById('to');
+        if (!today || !week || !from || !to) return false;
+
+        const btn = document.createElement('input');
+        btn.type = 'button';
+        btn.id = 'tm-yesterday';
+        btn.name = 'yesterday';
+        btn.value = 'Yesterday';
+        btn.className = today.className;
+        btn.style.cssText = today.style.cssText;
+        btn.addEventListener('click', () => {
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            const val = formatLocalDate(d);
+            [from, to].forEach(el => {
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+        // dokładnie między Today a Last 7 days
+        week.before(btn);
+        return true;
+    }
+
+    if (!addYesterdayButton()) {
+        let tries = 0;
+        const t = setInterval(() => {
+            if (addYesterdayButton() || ++tries >= 20) clearInterval(t);
+        }, 500);
     }
 
     process();
