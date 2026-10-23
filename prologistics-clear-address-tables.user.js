@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics - Clear address tables
 // @namespace    kimcichon-beliani
-// @version      1.1
+// @version      1.2
 // @description  Adds small "Clear" buttons above the billing and delivery address tables on order.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/order.php*
@@ -19,6 +19,38 @@
         { selector: 'table.billing',  label: 'Clear' },
         { selector: 'table.shipping', label: 'Clear' },
     ];
+
+    // style przycisku (z hoverem i efektem wciśnięcia)
+    const style = document.createElement('style');
+    style.textContent = `
+        .tm-clear-btn {
+            display: inline-block;
+            margin: 2px 0 4px 0;
+            padding: 2px 10px;
+            font-size: 11px;
+            font-family: Arial, sans-serif;
+            line-height: 14px;
+            color: #750000;
+            background: linear-gradient(#ffffff, #e6e6e6);
+            border: 1px solid #750000;
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.25);
+            cursor: pointer;
+            user-select: none;
+            transition: background .15s, color .15s, box-shadow .15s;
+        }
+        .tm-clear-btn:hover {
+            color: #fff;
+            background: linear-gradient(#a30000, #750000);
+        }
+        .tm-clear-btn:active {
+            background: #5a0000;
+            color: #fff;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,.5);
+            transform: translateY(1px);
+        }
+    `;
+    document.head.appendChild(style);
 
     function fire(el, type) {
         el.dispatchEvent(new Event(type, { bubbles: true }));
@@ -47,11 +79,8 @@
 
         const btn = document.createElement('button');
         btn.type = 'button'; // żeby nie wysyłał formularza
+        btn.className = 'tm-clear-btn';
         btn.textContent = label;
-        btn.style.cssText =
-            'display:block;margin:2px 0 4px 0;padding:0 6px;height:16px;line-height:14px;' +
-            'font-size:10px;cursor:pointer;background:#750000;color:#fff;' +
-            'border:0;border-radius:2px;font-weight:normal;';
         btn.addEventListener('click', e => {
             e.preventDefault();
             clearTable(table);
