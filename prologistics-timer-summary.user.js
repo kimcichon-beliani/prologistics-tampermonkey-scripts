@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      2.0.1
+// @version      2.1.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -110,75 +110,57 @@
         `<span class="tm-ts-min" data-copy="${minVal(sec)}" title="Kliknij, aby skopiować ${minVal(sec)}" ` +
         `style="cursor:pointer;border-bottom:1px dotted ${BRAND};${extra}">${fmtMin(sec)}</span>`;
 
-    // ---------- ukryte komentarze ("You see 20 of 26 comments, click to see All comments") ----------
-    // Nie rozwijamy ich automatycznie (to spowalnia stronę) – tylko ostrzegamy i dajemy przycisk.
+    // ---------- skanowanie strony ----------
+    // Niezależne od struktury HTML: szukamy węzłów tekstowych z "spent time" / "commented on" / "You see",
+    // a potem wspinamy się do najmniejszego elementu, którego cały tekst jest pełnym wpisem logu.
+    // (Szybkie: sprawdzamy tylko okolice trafień, a nie wszystkie elementy strony.)
     const NOTICE_RE = /You see (\d+) of (\d+) comments/;
+    const HIT_RE = /spent\s+time|commented\s+on|added\s+manually|You\s+see/;
 
-    function findNotice() {
-        // 1) po linku "All comments" (mało elementów do sprawdzenia)
-        for (const link of document.querySelectorAll('a, button')) {
-            if (!/^\s*all comments\s*$/i.test(link.textContent)) continue;
-            const host = link.parentElement;
-            const m = host && host.textContent.match(NOTICE_RE);
-            if (m) return { link, el: host, shown: +m[1], total: +m[2] };
-        }
-        // 2) awaryjnie po komórce tabeli z tym tekstem
-        for (const el of document.querySelectorAll('td, div, span, p')) {
-            const f = el.firstChild;
-            if (!f || f.nodeType !== 3 || !f.nodeValue.includes('You see')) continue;
-            const m = el.textContent.match(NOTICE_RE);
-            if (m) return { link: null, el, shown: +m[1], total: +m[2] };
-        }
-        return null;
-    }
-
-    function clickAll(notice) {
-        let link = notice.link;
-        if (!link) {
-            link = [...notice.el.querySelectorAll('a, button, [role="button"], span')]
-                .find(e => e.children.length === 0 && /all comments/i.test(e.textContent));
-        }
-        (link || notice.el).click();
-        console.log(LOG, 'Klik w "All comments"');
-    }
-
-    // ---------- zczytywanie ----------
-    function readEntries() {
+    function scan() {
+        const panel = document.getElementById(PANEL_ID);
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const done = new Set();
         const found = [];
-        const collect = el => {
-            const raw = el.textContent;
-            if (raw.length > 600 || !raw.includes('spent time')) return;
-            const e = parse(raw.replace(/\s+/g, ' ').trim());
-            if (e) found.push(e);
-        };
-        // 1) elementy bez dzieci (sam tekst), np. <span class="styles-module__wrapper__...">
-        document.querySelectorAll('span, td, div, p').forEach(el => {
-            if (el.childElementCount === 0) collect(el);
-        });
-        // 2) awaryjnie: elementy z kilkoma dziećmi (tekst podzielony np. na <b>)
-        if (!found.length) {
-            const panel = document.getElementById(PANEL_ID);
-            document.querySelectorAll('span, td, div, p').forEach(el => {
-                if (el.childElementCount > 0 && el.childElementCount <= 3 && !(panel && panel.contains(el))) {
-                    const raw = el.textContent;
-                    if (raw.length <= 600 && raw.includes('spent time')) {
-                        // bierzemy tylko najgłębszy pasujący element
-                        const e = parse(raw.replace(/\s+/g, ' ').trim());
-                        if (e && ![...el.children].some(c => c.textContent.includes('spent time') && parse(c.textContent.replace(/\s+/g, ' ').trim()))) found.push(e);
-                    }
-                }
-            });
+        let notice = null;
+        let node;
+        while ((node = walker.nextNode())) {
+            const v = node.nodeValue;
+            if (v.length > 2000 || !HIT_RE.test(v)) continue;
+            let el = node.parentElement;
+            if (!el || (panel && panel.contains(el))) continue;
+            for (let depth = 0; el && depth < 5; depth++, el = el.parentElement) {
+                if (done.has(el)) break;
+                const text = norm(el);
+                if (text.length > 700) break;
+                const e = parse(text);
+                if (e) { found.push(e); done.add(el); break; }
+                const m = text.match(NOTICE_RE);
+                if (m) { notice = notice || { el, shown: +m[1], total: +m[2] }; done.add(el); break; }
+            }
         }
         // duplikaty usuwamy tylko dla timerów (ręczne wpisy nie mają godziny końca,
         // więc dwa takie same wpisy to dwa osobne wpisy)
         const seen = new Set();
-        return found.filter(e => {
+        const entries = found.filter(e => {
             if (e.manual) return true;
             const k = [e.date, e.start, e.end, e.label].join('|');
             if (seen.has(k)) return false;
             seen.add(k);
             return true;
         });
+        return { entries, notice };
+    }
+
+    // klik w "All comments" (link może być obok tekstu, więc szukamy też w kilku elementach nadrzędnych)
+    function clickAll(notice) {
+        let n = notice.el;
+        for (let i = 0; n && i < 4; i++, n = n.parentElement) {
+            const link = [...n.querySelectorAll('a, button, [role="button"], span, div')]
+                .find(e => e.childElementCount === 0 && /^\s*all comments\s*$/i.test(e.textContent));
+            if (link) { link.click(); console.log(LOG, 'Klik w "All comments"'); return; }
+        }
+        notice.el.click();
     }
 
     // ---------- UI ----------
@@ -284,7 +266,7 @@
         nat.value = box.dataset.date;
         box.querySelector('#tm-ts-warn').addEventListener('click', ev => {
             if (!ev.target.closest('.tm-ts-load')) return;
-            const n = findNotice();
+            const n = scan().notice;
             if (n) clickAll(n);
         });
         const outEl = box.querySelector('#tm-ts-out');
@@ -323,13 +305,14 @@
         const box = document.getElementById(PANEL_ID);
         if (!box) return;
         const date = box.dataset.date;
-        const rows = readEntries().filter(e => e.date === date);
+        const scanned = scan();
+        const rows = scanned.entries.filter(e => e.date === date);
         const out = box.querySelector('#tm-ts-out');
         const info = box.querySelector('#tm-ts-info');
         const warn = box.querySelector('#tm-ts-warn');
 
         // ukryte komentarze: ostrzeż (dane mogą być niepełne) i daj przycisk do ręcznego rozwinięcia
-        const hidden = findNotice();
+        const hidden = scanned.notice;
         const warnHtml = hidden
             ? `<div style="color:#a60;font-size:11px;white-space:normal;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
               `podsumowanie może być niepełne. ` +
@@ -415,7 +398,7 @@
     }
 
     // czy zmiana dotyczy komentarzy (a nie np. menu, zegara czy naszego okienka)?
-    const HINT = /spent time|You see \d+ of \d+ comments/;
+    const HINT = /spent\s+time|You\s+see\s+\d+\s+of\s+\d+\s+comments/;
     function relevant(muts) {
         const panel = document.getElementById(PANEL_ID);
         for (const m of muts) {
