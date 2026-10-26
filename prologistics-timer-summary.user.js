@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.8.0
+// @version      1.8.1
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -292,6 +292,8 @@
         });
     }
 
+    let lastHtml = null;
+
     function render() {
         const box = document.getElementById(PANEL_ID);
         if (!box) return;
@@ -312,6 +314,7 @@
         if (!rows.length) {
             info.textContent = '';
             out.innerHTML = '<i>Brak timerów z komentarzem dla tego dnia.</i>';
+            lastHtml = null;
             return;
         }
 
@@ -360,7 +363,14 @@
         if (sumLabels !== total) {
             html += `<div style="margin-top:6px;color:#a60;font-size:11px;cursor:help;overflow:hidden;text-overflow:ellipsis;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
         }
+        // nie przebudowujemy listy, jeśli nic się nie zmieniło, a przy zmianie zachowujemy pozycję przewinięcia
+        if (html === lastHtml) return;
+        const oldList = out.firstElementChild;
+        const keepTop = oldList ? oldList.scrollTop : 0;
         out.innerHTML = html;
+        lastHtml = html;
+        const newList = out.firstElementChild;
+        if (newList) newList.scrollTop = keepTop;
     }
 
     // ---------- start + obserwacja zmian (React doładowuje dane) ----------
