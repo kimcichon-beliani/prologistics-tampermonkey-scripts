@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Filtrowanie listy Shipping method + Country — Ticket
 // @namespace    http://tampermonkey.net/
-// @version      1.6.1
+// @version      1.6.2
 // @description  Ogranicza listę "Shipping method #" do wybranych spedycji, z dodatkowym filtrem po kraju
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php?*
@@ -24,6 +24,7 @@
         'CH: Swiss Post PostPac': 'CH',
         'CH: Swiss Post Sperrgut': 'CH',
         'CZ: GLS (CZ)': 'CZ',
+        'CZ: Toptrans': 'CZ',
         'DE: DHL WD R': 'DE',
         'DE: DPD': 'DE',
         'DE: GLS': 'DE',
