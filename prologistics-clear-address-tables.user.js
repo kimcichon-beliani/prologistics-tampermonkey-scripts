@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Prologistics - Clear address tables
 // @namespace    kimcichon-beliani
-// @version      1.2
-// @description  Adds small "Clear" buttons above the billing and delivery address tables on order.php
+// @version      1.3
+// @description  Adds small "Clear" buttons above the billing and delivery address tables on order.php (keeps e-mail)
 // @author       kimrioter
 // @match        https://www.prologistics.info/order.php*
 // @grant        none
@@ -57,8 +57,10 @@
     }
 
     function clearTable(table) {
-        // pola tekstowe (firma, VAT, imię, nazwisko, ulica, numer, kod, miasto, e-mail, telefony)
+        // pola tekstowe (firma, VAT, imię, nazwisko, ulica, numer, kod, miasto, telefony)
+        // pole e-mail (name zawiera "email_") jest pomijane
         table.querySelectorAll('input[type="text"]').forEach(inp => {
+            if ((inp.name || '').includes('email_')) return;
             inp.value = '';
             fire(inp, 'input');
             fire(inp, 'change');
