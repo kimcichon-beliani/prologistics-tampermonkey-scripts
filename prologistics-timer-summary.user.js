@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.9.0
+// @version      2.0.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -111,58 +111,52 @@
         `style="cursor:pointer;border-bottom:1px dotted ${BRAND};${extra}">${fmtMin(sec)}</span>`;
 
     // ---------- ukryte komentarze ("You see 20 of 26 comments, click to see All comments") ----------
-    let loadAttempts = 0;
-    let lastClick = 0;
+    // Nie rozwijamy ich automatycznie (to spowalnia stronę) – tylko ostrzegamy i dajemy przycisk.
+    const NOTICE_RE = /You see (\d+) of (\d+) comments/;
 
     function findNotice() {
-        const panel = document.getElementById(PANEL_ID);
-        const re = /You see (\d+) of (\d+) comments/;
-        let found = null;
-        // querySelectorAll idzie w kolejności dokumentu, więc ostatnie dopasowanie jest najgłębsze
-        document.querySelectorAll('td, div, span, p').forEach(el => {
-            if (panel && panel.contains(el)) return;
-            const t = norm(el);
-            if (t.length > 200) return;
-            const m = t.match(re);
-            if (m) found = { el, shown: +m[1], total: +m[2] };
-        });
-        return found;
+        // 1) po linku "All comments" (mało elementów do sprawdzenia)
+        for (const link of document.querySelectorAll('a, button')) {
+            if (!/^\s*all comments\s*$/i.test(link.textContent)) continue;
+            const host = link.parentElement;
+            const m = host && host.textContent.match(NOTICE_RE);
+            if (m) return { link, el: host, shown: +m[1], total: +m[2] };
+        }
+        // 2) awaryjnie po komórce tabeli z tym tekstem
+        for (const td of document.querySelectorAll('td')) {
+            const t = td.textContent;
+            if (t.length > 200 || !t.includes('You see')) continue;
+            const m = t.match(NOTICE_RE);
+            if (m) return { link: null, el: td, shown: +m[1], total: +m[2] };
+        }
+        return null;
     }
 
     function clickAll(notice) {
-        const link = [...notice.el.querySelectorAll('a, button, [role="button"], span')]
-            .find(e => e.children.length === 0 && /all comments/i.test(e.textContent));
+        let link = notice.link;
+        if (!link) {
+            link = [...notice.el.querySelectorAll('a, button, [role="button"], span')]
+                .find(e => e.children.length === 0 && /all comments/i.test(e.textContent));
+        }
         (link || notice.el).click();
         console.log(LOG, 'Klik w "All comments"');
     }
 
-    // klika "All comments" (max 3 próby), zwraca informację o ukrytych komentarzach lub null
-    function ensureAll() {
-        const n = findNotice();
-        if (!n) { loadAttempts = 0; return null; }
-        if (loadAttempts < 3 && Date.now() - lastClick > 2000) {
-            loadAttempts++;
-            lastClick = Date.now();
-            clickAll(n);
-            setTimeout(schedule, 2200);
-        }
-        return n;
-    }
-
     // ---------- zczytywanie ----------
     function readEntries() {
-        const panel = document.getElementById(PANEL_ID);
         const found = [];
-        document.querySelectorAll('span, td').forEach(el => {
-            if (panel && panel.contains(el)) return;
-            const text = norm(el);
-            if (!text.includes('spent time')) return;
-            const e = parse(text);
-            if (!e) return;
-            // bierzemy tylko najgłębszy element, żeby nie liczyć td + span podwójnie
-            if ([...el.querySelectorAll('span, td')].some(c => parse(norm(c)))) return;
-            found.push(e);
-        });
+        const collect = el => {
+            const raw = el.textContent;
+            if (raw.length > 600 || !raw.includes('spent time')) return;
+            const e = parse(raw.replace(/\s+/g, ' ').trim());
+            if (e) found.push(e);
+        };
+        document.querySelectorAll('td').forEach(collect);
+        if (!found.length) {
+            // awaryjnie (gdyby komentarze nie były w tabeli)
+            const panel = document.getElementById(PANEL_ID);
+            document.querySelectorAll('span').forEach(el => { if (!panel || !panel.contains(el)) collect(el); });
+        }
         // duplikaty usuwamy tylko dla timerów (ręczne wpisy nie mają godziny końca,
         // więc dwa takie same wpisy to dwa osobne wpisy)
         const seen = new Set();
@@ -279,7 +273,7 @@
         box.querySelector('#tm-ts-warn').addEventListener('click', ev => {
             if (!ev.target.closest('.tm-ts-load')) return;
             const n = findNotice();
-            if (n) { lastClick = Date.now(); clickAll(n); setTimeout(schedule, 2200); }
+            if (n) clickAll(n);
         });
         const outEl = box.querySelector('#tm-ts-out');
         outEl.addEventListener('scroll', ev => {
@@ -309,6 +303,8 @@
     }
 
     let lastHtml = null;
+    let lastWarn = null;
+    let lastInfo = null;
     let listScroll = 0; // zapamiętana pozycja przewinięcia listy partnerów
 
     function render() {
@@ -320,16 +316,18 @@
         const info = box.querySelector('#tm-ts-info');
         const warn = box.querySelector('#tm-ts-warn');
 
-        // ukryte komentarze: spróbuj wczytać wszystkie, a jeśli się nie da – ostrzeż
-        const hidden = ensureAll();
-        warn.innerHTML = hidden
+        // ukryte komentarze: ostrzeż (dane mogą być niepełne) i daj przycisk do ręcznego rozwinięcia
+        const hidden = findNotice();
+        const warnHtml = hidden
             ? `<div style="color:#a60;font-size:11px;white-space:normal;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
-              `${loadAttempts >= 3 ? 'nie udało się wczytać automatycznie' : 'wczytuję pozostałe…'} ` +
+              `podsumowanie może być niepełne. ` +
               `<button class="tm-ts-load" style="cursor:pointer;margin-left:4px;">Wczytaj wszystkie</button></div>`
             : '';
+        if (warnHtml !== lastWarn) { warn.innerHTML = warnHtml; lastWarn = warnHtml; }
 
         if (!rows.length) {
             info.textContent = '';
+            lastInfo = null;
             out.innerHTML = '<i>Brak timerów z komentarzem dla tego dnia.</i>';
             lastHtml = null;
             return;
@@ -337,9 +335,13 @@
 
         // dopisek: z którego dnia i czyje timery (osoby wykrywane z wpisów, bez wyboru)
         const persons = [...new Set(rows.map(e => e.person))].join(', ');
-        info.title = `Podsumowanie timerów z dnia ${isoToPl(date)} przez: ${persons}`;
-        info.innerHTML = `Podsumowanie timerów z dnia <b>${isoToPl(date)}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
-        fitText(info);
+        const infoHtml = `Podsumowanie timerów z dnia <b>${isoToPl(date)}</b> przez: <b>${persons.replace(/</g, '&lt;')}</b>`;
+        if (infoHtml !== lastInfo) {
+            info.title = `Podsumowanie timerów z dnia ${isoToPl(date)} przez: ${persons}`;
+            info.innerHTML = infoHtml;
+            fitText(info);
+            lastInfo = infoHtml;
+        }
 
         // suma per komentarz
         const byLabel = new Map();
@@ -397,16 +399,27 @@
     let timer = null;
     function schedule() {
         clearTimeout(timer);
-        timer = setTimeout(() => { build(); render(); }, 400);
+        timer = setTimeout(() => { build(); render(); }, 900);
+    }
+
+    // czy zmiana dotyczy tabeli (komentarzy), a nie np. menu, zegara czy naszego okienka?
+    function relevant(muts) {
+        const panel = document.getElementById(PANEL_ID);
+        for (const m of muts) {
+            const t = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+            if (!t || (panel && panel.contains(t))) continue;
+            if (t.closest('table')) return true;
+            for (const n of m.addedNodes) {
+                if (n.nodeType === 1 && (n.matches('table, tbody, tr, td') || n.querySelector('table, tr'))) return true;
+            }
+        }
+        return false;
     }
 
     build();
     render();
-    new MutationObserver(muts => {
-        const panel = document.getElementById(PANEL_ID);
-        if (panel && muts.every(m => panel.contains(m.target))) return;
-        schedule();
-    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    new MutationObserver(muts => { if (relevant(muts)) schedule(); })
+        .observe(document.body, { childList: true, subtree: true, characterData: true });
 
     console.log(LOG, 'Podsumowanie timerów załadowane');
 })();
