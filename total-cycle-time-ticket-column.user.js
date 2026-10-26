@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.0.0
+// @version      2.1.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem i przycisk Yesterday
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -259,7 +259,7 @@
 
     const title = document.createElement('div');
     title.textContent = 'Partner filter';
-    title.style.cssText = `font-weight:bold;color:${BRAND};margin-bottom:6px;cursor:pointer`;
+    title.style.cssText = `font-weight:bold;color:${BRAND};margin-bottom:6px;cursor:move`;
 
     const body = document.createElement('div');
 
@@ -351,11 +351,56 @@
     const status = document.createElement('pre');
     status.style.cssText = 'margin:8px 0 0;white-space:pre-wrap;font:12px Arial,sans-serif';
 
-    title.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
+    // ── przeciąganie panelu za tytuł; klik bez ruchu nadal zwija / rozwija ──
+    const POS_KEY = 'tm_partner_panel_pos';
+    const setPos = (left, top) => {
+      const l = Math.min(Math.max(0, left), Math.max(0, window.innerWidth - box.offsetWidth));
+      const t = Math.min(Math.max(0, top), Math.max(0, window.innerHeight - 30));
+      box.style.left = l + 'px';
+      box.style.top = t + 'px';
+      box.style.right = 'auto';
+    };
+    title.style.cursor = 'move';
+    title.style.userSelect = 'none';
+    title.style.touchAction = 'none';
+    let drag = null;
+    title.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const r = box.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, x0: e.clientX, y0: e.clientY, moved: false };
+      title.setPointerCapture(e.pointerId);
+    });
+    title.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+      drag.moved = true;
+      setPos(e.clientX - drag.dx, e.clientY - drag.dy);
+    });
+    title.addEventListener('pointerup', (e) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      try { title.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      if (d.moved) {
+        try { localStorage.setItem(POS_KEY, JSON.stringify({ left: parseFloat(box.style.left), top: parseFloat(box.style.top) })); } catch (err) { /* ignore */ }
+      } else {
+        body.style.display = body.style.display === 'none' ? '' : 'none';
+      }
+    });
+    title.addEventListener('pointercancel', () => { drag = null; });
+    window.addEventListener('resize', () => {
+      if (box.style.left) setPos(parseFloat(box.style.left), parseFloat(box.style.top));
+    });
 
     body.append(search, list, buttons, range, status);
     box.append(title, body);
     document.body.appendChild(box);
+
+    // przywróć zapamiętaną pozycję panelu
+    try {
+      const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+      if (saved && isFinite(saved.left) && isFinite(saved.top)) setPos(saved.left, saved.top);
+    } catch (err) { /* ignore */ }
   }
 
   // Usuwa panel ze starych wersji / zdublowanego skryptu (stare id), żeby nie zasłaniał nowego
