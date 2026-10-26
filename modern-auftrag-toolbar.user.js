@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      2.1
+// @version      2.2
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.1');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.2');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -122,21 +122,17 @@
         document.head.appendChild(style);
     }
 
-    // Szukamy oryginalnego linku "Change order" w starym toolbarze.
-    // Kolejność: 1) link do order.php, 2) tekst zawierający "change order".
-    // NIE używamy już klasy --disabled ani span[title*="shipped"], bo w nowej wersji
-    // strony tę klasę ma też np. "Impostor Mode", co powodowało podmianę złego elementu.
+    // Szukamy oryginalnego elementu "Change order" po tekście (niezależnie od tagu
+    // i wielkości liter). Aktywny wariant to <a href="order.php...">, nieaktywny
+    // (np. wysłany Auftrag) to <span class="...--disabled" title="...">.
     function findChangeOrderElement(oldToolbar) {
-        const byHref = oldToolbar.querySelector('a[href*="order.php"]');
-        if (byHref) return byHref;
-
-        const candidates = oldToolbar.querySelectorAll('a, button, span');
-        for (const c of candidates) {
-            if (c.textContent.trim().toLowerCase().includes('change order')) {
-                return c;
-            }
-        }
-        return null;
+        const candidates = Array.from(oldToolbar.querySelectorAll('a, button, span'))
+            .filter(el => el.children.length === 0 &&
+                el.textContent.trim().toLowerCase().includes('change order'));
+        // Preferujemy działający link, jeśli jest
+        return candidates.find(el => el.tagName.toLowerCase() === 'a' && el.getAttribute('href'))
+            || candidates[0]
+            || null;
     }
 
     function replaceToolbar() {
@@ -176,37 +172,37 @@
             newToolbar.appendChild(a);
         });
 
-        // 2. Change Order — ZAWSZE aktywny.
-        // Tworzymy NOWY link z absolutnym URL (wzięty z oryginału albo zbudowany
-        // z numeru Auftrag) i otwieramy go własnym handlerem w fazie capture,
-        // z zatrzymaniem propagacji. Dzięki temu żadne skrypty strony
-        // (delegowane handlery na .auftrag-toolbar / document) nie mogą
-        // zablokować kliknięcia.
+        // 2. Change Order — aktywny tylko, gdy oryginał jest działającym linkiem.
+        // Gdy oryginał to nieaktywny <span> (np. wysłany Auftrag), pokazujemy
+        // wyszarzony, nieklikalny przycisk z oryginalnym title.
         const oldChangeBtn = findChangeOrderElement(oldToolbar);
-        let changeUrl = '';
+        const changeHref = oldChangeBtn && oldChangeBtn.tagName.toLowerCase() === 'a'
+            ? oldChangeBtn.getAttribute('href')
+            : null;
+        const isChangeDisabled = !changeHref ||
+            oldChangeBtn.classList.contains('auftrag-toolbar__btn--disabled');
 
-        if (oldChangeBtn && oldChangeBtn.getAttribute && oldChangeBtn.getAttribute('href')) {
-            changeUrl = new URL(oldChangeBtn.getAttribute('href'), location.href).href;
-        } else if (auftragNumber) {
-            changeUrl = new URL(
-                `order.php?auction=${encodeURIComponent(auftragNumber)}&txnid=${encodeURIComponent(txnid)}&admin=1`,
-                location.href
-            ).href;
-        }
-
-        const changeBtn = document.createElement('a');
-        changeBtn.className = 'tm-toolbar-btn tm-btn-primary';
-        changeBtn.textContent = 'Change Order';
-        changeBtn.target = '_blank';
-        changeBtn.rel = 'noopener';
-        if (changeUrl) {
+        let changeBtn;
+        if (!isChangeDisabled) {
+            const changeUrl = new URL(changeHref, location.href).href;
+            changeBtn = document.createElement('a');
+            changeBtn.className = 'tm-toolbar-btn tm-btn-primary';
             changeBtn.href = changeUrl;
+            changeBtn.target = '_blank';
+            changeBtn.rel = 'noopener';
+            // Własny handler w fazie capture - skrypty strony nie zablokują kliknięcia
             changeBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 window.open(changeUrl, '_blank');
             }, true);
+        } else {
+            changeBtn = document.createElement('span');
+            changeBtn.className = 'tm-toolbar-btn tm-btn-disabled';
+            changeBtn.title = (oldChangeBtn && oldChangeBtn.getAttribute('title')) ||
+                'You cannot change the order for a shipped Auftrag';
         }
+        changeBtn.textContent = 'Change Order';
         newToolbar.appendChild(changeBtn);
 
         // 3. Formularz New Ticket
