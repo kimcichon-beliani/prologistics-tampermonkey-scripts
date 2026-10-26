@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.1.0
+// @version      2.2.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem i przycisk Yesterday
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -715,6 +715,38 @@
         });
         // dokładnie między Today a Last 7 days
         week.before(btn);
+
+        // ── "Last Weekend + Mon": ostatni ZAKOŃCZONY weekend (sob + niedz) + poniedziałek po nim ──
+        // Bierzemy ostatnią niedzielę ściśle przed dzisiaj, więc poniedziałek nigdy nie jest w przyszłości:
+        //   dziś pon 26.10 -> sob 24.10 – pon 26.10 | dziś wt 27.10 -> to samo | dziś niedz 25.10 -> sob 17.10 – pon 19.10
+        const weekendRange = () => {
+            const now = new Date();
+            const back = now.getDay() === 0 ? 7 : now.getDay(); // ile dni wstecz do ostatniej niedzieli (< dziś)
+            const sat = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back - 1);
+            const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back + 1);
+            return [formatLocalDate(sat), formatLocalDate(mon)];
+        };
+        const wbtn = document.createElement('input');
+        wbtn.type = 'button';
+        wbtn.id = 'tm-last-weekend';
+        wbtn.name = 'last_weekend';
+        wbtn.value = 'Last Weekend + Mon';
+        wbtn.className = today.className;
+        wbtn.style.cssText = today.style.cssText;
+        wbtn.addEventListener('mouseenter', () => {
+            const [a, b] = weekendRange();
+            wbtn.title = a + ' → ' + b;
+        });
+        wbtn.addEventListener('click', () => {
+            const [a, b] = weekendRange();
+            from.value = a;
+            to.value = b;
+            [from, to].forEach(el => {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+        btn.after(wbtn); // Yesterday | Last Weekend + Mon | Last 7 days
         return true;
     }
 
