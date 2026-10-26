@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – quick partner filter
 // @namespace    kimrioter
-// @version      1.3.0
+// @version      1.4.0
 // @description  Pick a partner in the panel and the script fills in Seller and Source Seller on total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -16,6 +16,7 @@
 
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
+  const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -241,10 +242,10 @@
   // UI
   // ───────────────────────────────────────────────────────────────
   function buildPanel() {
-    if (document.getElementById('tm-partner-filter')) return;
+    if (document.getElementById(PANEL_ID)) return;
 
     const box = document.createElement('div');
-    box.id = 'tm-partner-filter';
+    box.id = PANEL_ID;
     box.style.cssText = [
       'position:fixed', 'top:80px', 'right:12px', 'z-index:99999', 'width:270px',
       'background:#fff', `border:2px solid ${BRAND}`, 'border-radius:6px',
@@ -309,16 +310,39 @@
     clear.style.cssText = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer`;
     clear.addEventListener('click', () => { highlight(null); search.value = ''; clearAll(setStatus); });
 
+    // Przycisk Search = kopia przycisku "Filter" ze strony (klika oryginał, więc wysyła się name="filter")
+    const searchBtn = document.createElement('button');
+    searchBtn.type = 'button';
+    searchBtn.textContent = 'Search';
+    searchBtn.style.cssText = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 14px;cursor:pointer;font-weight:bold`;
+    searchBtn.addEventListener('click', () => {
+      const filterBtn = document.querySelector('input[type="submit"][name="filter"]');
+      if (!filterBtn) return setStatus('✖ "Filter" button not found on the page');
+      filterBtn.click();
+    });
+
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display:flex;gap:6px';
+    buttons.append(searchBtn, clear);
+
     const status = document.createElement('pre');
     status.style.cssText = 'margin:8px 0 0;white-space:pre-wrap;font:12px Arial,sans-serif';
 
     title.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
 
-    body.append(search, list, clear, status);
+    body.append(search, list, buttons, status);
     box.append(title, body);
     document.body.appendChild(box);
   }
 
+  // Usuwa panel ze starych wersji / zdublowanego skryptu (stare id), żeby nie zasłaniał nowego
+  function removeLegacyPanels() {
+    document.querySelectorAll('#tm-partner-filter').forEach((el) => el.remove());
+  }
+
+  removeLegacyPanels();
   buildPanel();
-  console.log(LOG, 'total-cycle-time-partner-filter v1.3.0 loaded');
+  setTimeout(removeLegacyPanels, 1000);
+  setTimeout(removeLegacyPanels, 3000);
+  console.log(LOG, 'total-cycle-time-partner-filter v1.4.0 loaded');
 })();
