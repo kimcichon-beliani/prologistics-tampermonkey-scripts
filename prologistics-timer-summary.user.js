@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      2.1.0
+// @version      2.2.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -15,6 +15,7 @@
     'use strict';
 
     const LOG = '[TM script by kimrioter]';
+    const VERSION = '2.2.0';
     const BRAND = '#750000';
     const PANEL_ID = 'tm-timer-summary';
 
@@ -133,6 +134,8 @@
                 if (done.has(el)) break;
                 const text = norm(el);
                 if (text.length > 700) break;
+                // jeden wpis logu ma dokładnie jedno "spent time" – więcej oznacza, że wspięliśmy się za wysoko
+                if ((text.match(/spent\s+time/g) || []).length > 1) break;
                 const e = parse(text);
                 if (e) { found.push(e); done.add(el); break; }
                 const m = text.match(NOTICE_RE);
@@ -163,6 +166,90 @@
         notice.el.click();
     }
 
+    // ---------- własny, mały kalendarz (tydzień zaczyna się od poniedziałku) ----------
+    // Natywnego kalendarza przeglądarki nie da się zmniejszyć ani przestawić na poniedziałek.
+    const MONTHS_PL = ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'];
+    const DAYS_PL = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
+    let calEl = null;
+    let calAnchor = null;
+
+    function closeCalendar() {
+        if (calEl) calEl.remove();
+        calEl = null;
+        document.removeEventListener('mousedown', onCalOutside, true);
+        document.removeEventListener('keydown', onCalKey, true);
+    }
+    function onCalOutside(ev) {
+        if (calEl && !calEl.contains(ev.target) && !(calAnchor && calAnchor.contains(ev.target))) closeCalendar();
+    }
+    function onCalKey(ev) { if (ev.key === 'Escape') closeCalendar(); }
+
+    function openCalendar(anchor, iso, onPick) {
+        closeCalendar();
+        calAnchor = anchor;
+        const p2 = n => String(n).padStart(2, '0');
+        const toIso = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+        const [sy, sm] = iso.split('-').map(Number);
+        let vy = sy, vm = sm - 1;
+        const todayIso = today();
+
+        calEl = document.createElement('div');
+        calEl.id = 'tm-ts-calendar';
+        calEl.style.cssText = `position:fixed;z-index:100000;width:168px;box-sizing:border-box;background:#fff;` +
+            `border:1px solid ${BRAND};border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.3);` +
+            `font:11px/1.2 Arial,sans-serif;color:#222;padding:6px;user-select:none;`;
+
+        const draw = () => {
+            const offset = (new Date(vy, vm, 1).getDay() + 6) % 7; // 0 = poniedziałek
+            let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-weight:bold;">
+                <span data-nav="-1" style="cursor:pointer;padding:0 8px;">‹</span>
+                <span>${MONTHS_PL[vm]} ${vy}</span>
+                <span data-nav="1" style="cursor:pointer;padding:0 8px;">›</span></div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;gap:1px;">`;
+            DAYS_PL.forEach(d => { h += `<div style="color:#888;font-size:10px;padding:2px 0;">${d}</div>`; });
+            for (let i = 0; i < 42; i++) {
+                const d = new Date(vy, vm, 1 - offset + i);
+                const dIso = toIso(d);
+                let st = 'cursor:pointer;padding:3px 0;border-radius:3px;';
+                if (d.getMonth() !== vm) st += 'color:#bbb;';
+                if (dIso === todayIso) st += `outline:1px solid ${BRAND};`;
+                if (dIso === iso) st += `background:${BRAND};color:#fff;`;
+                h += `<div data-day="${dIso}" style="${st}">${d.getDate()}</div>`;
+            }
+            h += `</div><div style="text-align:right;margin-top:4px;"><span data-today="1" style="cursor:pointer;color:${BRAND};">Dziś</span></div>`;
+            calEl.innerHTML = h;
+        };
+
+        calEl.addEventListener('click', ev => {
+            const nav = ev.target.closest('[data-nav]');
+            const day = ev.target.closest('[data-day]');
+            if (nav) {
+                vm += +nav.dataset.nav;
+                if (vm < 0) { vm = 11; vy--; }
+                if (vm > 11) { vm = 0; vy++; }
+                draw();
+            } else if (day) {
+                closeCalendar();
+                onPick(day.dataset.day);
+            } else if (ev.target.closest('[data-today]')) {
+                closeCalendar();
+                onPick(todayIso);
+            }
+        });
+
+        draw();
+        document.body.appendChild(calEl);
+        const r = anchor.getBoundingClientRect();
+        const w = calEl.offsetWidth, h = calEl.offsetHeight;
+        let left = Math.min(r.left, window.innerWidth - w - 4);
+        let top = r.bottom + 4;
+        if (top + h > window.innerHeight) top = Math.max(4, r.top - h - 4);
+        calEl.style.left = Math.max(4, left) + 'px';
+        calEl.style.top = top + 'px';
+        document.addEventListener('mousedown', onCalOutside, true);
+        document.addEventListener('keydown', onCalKey, true);
+    }
+
     // ---------- UI ----------
     function build() {
         if (document.getElementById(PANEL_ID)) return;
@@ -180,10 +267,8 @@
                 <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;position:relative;">
                     <input type="text" id="tm-ts-date" maxlength="10" placeholder="DD.MM.RRRR" title="Dzień.miesiąc.rok"
                         style="width:80px;padding:1px 4px;font-size:11px;text-align:center;box-sizing:border-box;">
-                    <button type="button" id="tm-ts-cal" title="Wybierz z kalendarza"
+                    <button type="button" id="tm-ts-cal" title="Wybierz z kalendarza (tydzień od poniedziałku)"
                         style="cursor:pointer;padding:0 4px;font-size:11px;">📆</button>
-                    <input type="date" id="tm-ts-native" tabindex="-1"
-                        style="position:absolute;left:0;top:100%;width:1px;height:1px;opacity:0;pointer-events:none;">
                 </div>
                 <div id="tm-ts-warn" style="margin-bottom:6px;"></div>
                 <div id="tm-ts-info" style="margin-bottom:6px;color:#555;overflow:hidden;white-space:nowrap;"></div>
@@ -244,11 +329,9 @@
             box.querySelector('#tm-ts-toggle').textContent = hidden ? '–' : '+';
         });
         const txt = box.querySelector('#tm-ts-date');
-        const nat = box.querySelector('#tm-ts-native');
         const setDate = iso => {
             box.dataset.date = iso;
             txt.value = isoToPl(iso);
-            nat.value = iso;
             txt.style.borderColor = '';
             render();
         };
@@ -257,13 +340,13 @@
             if (iso) setDate(iso);
             else { txt.value = isoToPl(box.dataset.date); txt.style.borderColor = 'red'; setTimeout(() => { txt.style.borderColor = ''; }, 1200); }
         });
-        nat.addEventListener('change', () => { if (nat.value) setDate(nat.value); });
-        box.querySelector('#tm-ts-cal').addEventListener('click', () => {
-            try { nat.showPicker(); } catch (e) { nat.click(); }
+        const calBtn = box.querySelector('#tm-ts-cal');
+        calBtn.addEventListener('click', () => {
+            if (calEl) closeCalendar();
+            else openCalendar(calBtn, box.dataset.date, setDate);
         });
         box.dataset.date = today();
         txt.value = isoToPl(box.dataset.date);
-        nat.value = box.dataset.date;
         box.querySelector('#tm-ts-warn').addEventListener('click', ev => {
             if (!ev.target.closest('.tm-ts-load')) return;
             const n = scan().notice;
@@ -323,7 +406,12 @@
         if (!rows.length) {
             info.textContent = '';
             lastInfo = null;
-            out.innerHTML = '<i>Brak timerów z komentarzem dla tego dnia.</i>';
+            const days = {};
+            scanned.entries.forEach(e => { days[e.date] = (days[e.date] || 0) + 1; });
+            const daysTxt = Object.keys(days).sort().map(d => `${isoToPl(d)} (${days[d]})`).join(', ');
+            out.innerHTML = '<i>Brak timerów z komentarzem dla tego dnia.</i>' +
+                `<div style="color:#999;font-size:10px;margin-top:4px;white-space:normal;">v${VERSION} · wpisów na stronie: ${scanned.entries.length}` +
+                (daysTxt ? ` · dni: ${daysTxt}` : '') + '</div>';
             lastHtml = null;
             return;
         }
@@ -420,8 +508,9 @@
 
     build();
     render();
+    setInterval(() => { if (!document.hidden) render(); }, 3000);
     new MutationObserver(muts => { if (relevant(muts)) schedule(); })
         .observe(document.body, { childList: true, subtree: true, characterData: true });
 
-    console.log(LOG, 'Podsumowanie timerów załadowane');
+    console.log(LOG, `Podsumowanie timerów załadowane (v${VERSION})`);
 })();
