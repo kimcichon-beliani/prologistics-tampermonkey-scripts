@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.8.1
+// @version      1.9.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -281,6 +281,22 @@
             const n = findNotice();
             if (n) { lastClick = Date.now(); clickAll(n); setTimeout(schedule, 2200); }
         });
+        const outEl = box.querySelector('#tm-ts-out');
+        outEl.addEventListener('scroll', ev => {
+            if (ev.target.classList && ev.target.classList.contains('tm-ts-list')) listScroll = ev.target.scrollTop;
+        }, true);
+        // kółko myszy przewija listę partnerów (niezależnie od tego, co robi strona)
+        outEl.addEventListener('wheel', ev => {
+            const list = ev.target.closest && ev.target.closest('.tm-ts-list');
+            if (!list) return;
+            const max = list.scrollHeight - list.clientHeight;
+            if (max <= 0) return;
+            const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
+            if ((dy < 0 && list.scrollTop <= 0) || (dy > 0 && list.scrollTop >= max)) return;
+            list.scrollTop += dy;
+            ev.preventDefault();
+            ev.stopPropagation();
+        }, { passive: false });
         box.querySelector('#tm-ts-out').addEventListener('click', ev => {
             const el = ev.target.closest('.tm-ts-min');
             if (!el) return;
@@ -293,6 +309,7 @@
     }
 
     let lastHtml = null;
+    let listScroll = 0; // zapamiętana pozycja przewinięcia listy partnerów
 
     function render() {
         const box = document.getElementById(PANEL_ID);
@@ -341,10 +358,10 @@
         const sumLabels = rows.reduce((a, e) => a + e.seconds, 0);
         const manualCount = rows.filter(e => e.manual).length;
 
-        // siatka o stałych kolumnach; przewija się tylko lista partnerów, RAZEM zostaje przyklejone na dole
+        // siatka o stałych kolumnach; przewija się tylko lista partnerów, RAZEM jest osobno pod nią
         const GRID = 'display:grid;grid-template-columns:minmax(0,1fr) 40px 52px 72px;column-gap:4px;align-items:baseline;line-height:18px;';
         const mono = 'text-align:right;font-family:monospace;';
-        let html = `<div style="max-height:170px;overflow-y:auto;scrollbar-width:thin;scrollbar-gutter:stable;">`;
+        let html = `<div class="tm-ts-list" style="max-height:220px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:${BRAND} #eee;">`;
         [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pl', { sensitivity: 'base' })).forEach(([label, v]) => {
             const safe = label.replace(/</g, '&lt;');
             const man = v.manual ? ` <span title="w tym wpisów ręcznych: ${v.manual}">✎${v.manual}</span>` : '';
@@ -355,22 +372,25 @@
                 <span style="${mono}">${minCell(v.sec)}</span></div>`;
         });
         const totMan = manualCount ? ` <span title="w tym wpisów ręcznych: ${manualCount}">✎${manualCount}</span>` : '';
-        html += `<div style="${GRID}position:sticky;bottom:0;background:#fff;border-top:1px solid ${BRAND};padding-top:2px;font-weight:bold;">
+        html += `</div><div class="tm-ts-total" style="${GRID}border-top:1px solid ${BRAND};margin-top:2px;padding-top:2px;font-weight:bold;">
             <span style="color:${BRAND};">RAZEM</span>
             <span style="color:#888;font-weight:normal;text-align:right;" title="liczba wpisów">×${uniq.size}${totMan}</span>
             <span style="${mono}color:${BRAND};">${fmt(total)}</span>
-            <span style="${mono}color:${BRAND};">${minCell(total)}</span></div></div>`;
+            <span style="${mono}color:${BRAND};">${minCell(total)}</span></div>`;
         if (sumLabels !== total) {
             html += `<div style="margin-top:6px;color:#a60;font-size:11px;cursor:help;overflow:hidden;text-overflow:ellipsis;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
         }
-        // nie przebudowujemy listy, jeśli nic się nie zmieniło, a przy zmianie zachowujemy pozycję przewinięcia
+        // nie przebudowujemy listy, jeśli nic się nie zmieniło
         if (html === lastHtml) return;
-        const oldList = out.firstElementChild;
-        const keepTop = oldList ? oldList.scrollTop : 0;
         out.innerHTML = html;
         lastHtml = html;
-        const newList = out.firstElementChild;
-        if (newList) newList.scrollTop = keepTop;
+        const list = out.querySelector('.tm-ts-list');
+        const total_ = out.querySelector('.tm-ts-total');
+        if (list) {
+            list.scrollTop = listScroll; // przywróć pozycję przewinięcia
+            // RAZEM wyrównane do listy także wtedy, gdy lista ma pasek przewijania
+            total_.style.paddingRight = (list.offsetWidth - list.clientWidth) + 'px';
+        }
     }
 
     // ---------- start + obserwacja zmian (React doładowuje dane) ----------
