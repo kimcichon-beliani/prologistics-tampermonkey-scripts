@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – quick partner filter
 // @namespace    kimrioter
-// @version      1.5.0
+// @version      1.5.1
 // @description  Pick a partner in the panel and the script fills in Seller and Source Seller on total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -247,7 +247,7 @@
     const box = document.createElement('div');
     box.id = PANEL_ID;
     box.style.cssText = [
-      'position:fixed', 'top:80px', 'right:12px', 'z-index:99999', 'width:270px',
+      'position:fixed', 'top:85px', 'right:12px', 'z-index:99999', 'width:270px',
       'background:#fff', `border:2px solid ${BRAND}`, 'border-radius:6px',
       'box-shadow:0 2px 8px rgba(0,0,0,.25)', 'font:13px Arial,sans-serif', 'padding:8px',
     ].join(';');
@@ -362,5 +362,5 @@
   buildPanel();
   setTimeout(removeLegacyPanels, 1000);
   setTimeout(removeLegacyPanels, 3000);
-  console.log(LOG, 'total-cycle-time-partner-filter v1.5.0 loaded');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.5.1 loaded');
 })();
