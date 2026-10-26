@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      2.0
+// @version      2.1
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.0');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.1');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -154,8 +154,9 @@
         }
 
         // Info o "Impostor Mode" zapamiętujemy zanim ukryjemy stary pasek
-        const impostorEl = Array.from(oldToolbar.querySelectorAll('span'))
-            .find(s => s.textContent.trim().toLowerCase().includes('impostor'));
+        const impostorEl = Array.from(oldToolbar.querySelectorAll('span, a, button'))
+            .filter(el => el.children.length === 0)
+            .find(el => el.textContent.trim().toLowerCase().includes('impostor'));
 
         const newToolbar = document.createElement('div');
         newToolbar.id = 'tm-custom-auftrag-toolbar';
@@ -176,25 +177,36 @@
         });
 
         // 2. Change Order — ZAWSZE aktywny.
-        // Jeśli oryginalny element to działający link (<a href>), przenosimy go
-        // (zachowuje atrybuty i handlery). W przeciwnym razie (brak elementu albo
-        // wersja bez linku) budujemy link sami z numeru Auftrag.
+        // Tworzymy NOWY link z absolutnym URL (wzięty z oryginału albo zbudowany
+        // z numeru Auftrag) i otwieramy go własnym handlerem w fazie capture,
+        // z zatrzymaniem propagacji. Dzięki temu żadne skrypty strony
+        // (delegowane handlery na .auftrag-toolbar / document) nie mogą
+        // zablokować kliknięcia.
         const oldChangeBtn = findChangeOrderElement(oldToolbar);
-        let changeBtn;
+        let changeUrl = '';
 
-        if (oldChangeBtn && oldChangeBtn.tagName.toLowerCase() === 'a' && oldChangeBtn.getAttribute('href')) {
-            changeBtn = oldChangeBtn;
-        } else {
-            changeBtn = document.createElement('a');
-            if (auftragNumber) {
-                changeBtn.href = `order.php?auction=${encodeURIComponent(auftragNumber)}&txnid=${encodeURIComponent(txnid)}&admin=1`;
-            }
+        if (oldChangeBtn && oldChangeBtn.getAttribute && oldChangeBtn.getAttribute('href')) {
+            changeUrl = new URL(oldChangeBtn.getAttribute('href'), location.href).href;
+        } else if (auftragNumber) {
+            changeUrl = new URL(
+                `order.php?auction=${encodeURIComponent(auftragNumber)}&txnid=${encodeURIComponent(txnid)}&admin=1`,
+                location.href
+            ).href;
         }
 
-        changeBtn.target = '_blank';
-        changeBtn.textContent = 'Change Order';
+        const changeBtn = document.createElement('a');
         changeBtn.className = 'tm-toolbar-btn tm-btn-primary';
-        changeBtn.removeAttribute('title');
+        changeBtn.textContent = 'Change Order';
+        changeBtn.target = '_blank';
+        changeBtn.rel = 'noopener';
+        if (changeUrl) {
+            changeBtn.href = changeUrl;
+            changeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                window.open(changeUrl, '_blank');
+            }, true);
+        }
         newToolbar.appendChild(changeBtn);
 
         // 3. Formularz New Ticket
@@ -227,12 +239,12 @@
             newToolbar.appendChild(a);
         });
 
-        // 5. Impostor Mode (tylko informacyjnie, jeśli występuje)
+        // 5. Impostor Mode (informacyjny, nieklikalny) — kopiujemy tekst i title z oryginału
         if (impostorEl) {
             const info = document.createElement('span');
             info.className = 'tm-toolbar-btn tm-btn-disabled';
             info.textContent = impostorEl.textContent.trim();
-            if (impostorEl.title) info.title = impostorEl.title;
+            if (impostorEl.getAttribute('title')) info.title = impostorEl.getAttribute('title');
             newToolbar.appendChild(info);
         }
 
@@ -241,4 +253,15 @@
 
     injectStyles();
     replaceToolbar();
+
+    // Jeśli strona dorysuje pasek później niż document-idle, ponawiamy próbę
+    if (!document.getElementById('tm-custom-auftrag-toolbar')) {
+        let tries = 0;
+        const timer = setInterval(() => {
+            replaceToolbar();
+            if (document.getElementById('tm-custom-auftrag-toolbar') || ++tries > 20) {
+                clearInterval(timer);
+            }
+        }, 500);
+    }
 })();
