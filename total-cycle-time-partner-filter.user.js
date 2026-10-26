@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Total Cycle Time – szybki filtr partnera
 // @namespace    kimrioter
-// @version      1.0.0
-// @description  Wpisujesz partnera, skrypt zaznacza go oraz odpowiadającego mu Sellera w filtrach total_cycle_time.php
+// @version      1.1.0
+// @description  Wybierasz partnera w panelu, skrypt sam uzupełnia Seller i Source Seller w total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @grant        none
@@ -18,48 +18,146 @@
   const BRAND = '#750000';
 
   // ───────────────────────────────────────────────────────────────
-  // KONFIGURACJA SELLERÓW
-  // Klucz = kraj (ostatni człon nazwy partnera, np. "Kaufland AT" -> "AT").
-  // Wartość = lista możliwych nazw Sellera w tabelce (pierwsza znaleziona wygrywa).
-  // UZUPEŁNIJ pozostałe kraje według listy "Sellerzy z których korzystamy".
+  // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
+  // Seller (górna lista) jest wyliczany automatycznie z klasy opcji Source Seller
+  // (np. Allegro CZ ma class="Beliani CZ" -> zaznaczy się "CZ: Beliani CZ = ...").
   // ───────────────────────────────────────────────────────────────
-  const SELLER_BY_COUNTRY = {
-    AT: ['Beliani (DE) GmbH', 'Beliani AT'],
-    // DE: ['Beliani (DE) GmbH'],
-    // PL: ['...'],
+  const PARTNERS = {
+    'Allegro Brand PL': ['Allegro Brand'],
+    'Allegro CZ': ['Allegro CZ'],
+    'Allegro HU': ['Allegro HU'],
+    'Allegro PL': ['Allegro'],
+    'Allegro SK': ['Allegro SK'],
+    'Altex RO': ['Altex RO'],
+    'Amazon + Prime DE': ['Amazon DE', 'Amazon Prime DE'],
+    'Amazon + Prime ES': ['Amazon ES', 'Amazon Prime ES'],
+    'Amazon + Prime FR': ['Amazon FR', 'Amazon Prime FR'],
+    'Amazon IT': ['Amazon IT'],
+    'Amazon NL': ['Amazon NL'],
+    'Amazon PL': ['Amazon PL'],
+    'Amazon SE': ['Amazon SE'],
+    'Amazon Seller Flex DE': ['Amazon DE Seller Flex'],
+    'Amazon UK': ['Amazon UK'],
+    'B&Q UK': ['B&Q', 'B&Q 0 VAT'],
+    'Bauhaus DE': ['Bauhaus DE'],
+    'Black Red White PL': ['Black Red White'],
+    'Bloop PT': ['Bloop PT'],
+    'Bol.com NL': ['Bol.com NL'],
+    'Brico BE': ['Brico BE'],
+    'Brico Bravo IT': ['Brico Bravo IT'],
+    'Brico Depot ES': ['Brico Depot ES'],
+    'Brico Depot PT': ['Brico Depot PT'],
+    'Bricomarché FR': ['Bricomarche FR'],
+    'BUT FR': ['BUT'],
+    'Carrefour ES': ['Carrefour ES'],
+    'Carrefour FR': ['Carrefour FR'],
+    'Castorama FR': ['Castorama FR'],
+    'Castorama PL': ['Castorama PL'],
+    'Cdiscount FR': ['CDiscount FR'],
+    'Check24 DE': ['Check24'],
+    'Conforama ES': ['Conforama ES'],
+    'Conforama FR': ['Conforama'],
+    'Conforama PT': ['CONFORAMA_PRT'],
+    'Cultura FR': ['Cultura FR'],
+    'E-price IT': ['ePrice IT'],
+    'eBay DE': ['eBay DE'],
+    'eBay FR': ['Ebay FR'],
+    'eBay IT': ['eBay IT'],
+    'eBay UK': ['eBay UK'],
+    'eMAG HU': ['EMAG HU', 'EMAG HU COD'],
+    'eMAG RO': ['eMAG RO'],
+    'Empik PL': ['Empik'],
+    'Furniture1 HU': ['Furniture1 HU'],
+    'Furniture1 LT': ['Furniture1'],
+    'Galaxus CH': ['Galaxus (Beliani) CH'],
+    'Gamm Vert FR': ['Gamm vert FR'],
+    'Hobbybox DK': ['Hobbybox DK'],
+    'Hobbybox FI': ['Hobbybox FI'],
+    'Hobbybox SE': ['Hobbybox SE'],
+    'Home&You PL': ['Home&You'],
+    'Home24 AT': ['Home24 AT'],
+    'Home24 CH': ['Home24 CH'],
+    'Home24 DE': ['Home24 DE'],
+    'Home24 FR': ['Home24 FR'],
+    'Home24 NL': ['Home24 NL'],
+    'Homedeco NL': ['Homedeco NL'],
+    'Hornbach DE': ['Hornbach DE'],
+    'Joybuy DE': ['Joybuy DE'],
+    'Kaufland AT': ['Kaufland AT'],
+    'Kaufland CZ': ['Kaufland CZ'],
+    'Kaufland DE': ['Kaufland DE'],
+    'Kaufland PL': ['Kaufland PL'],
+    'Kaufland SK': ['Kaufland SK'],
+    'Kuanto Kusta PT': ['KuantoKusta PT'],
+    'Leen Bakker BE': ['Leen Bakker BE'],
+    'Leen Bakker NL': ['Leen Bakker NL'],
+    'Leroy Merlin ES': ['LEROYMERLIN_ESP'],
+    'Leroy Merlin FR': ['LEROYMERLIN'],
+    'Leroy Merlin IT': ['Leroy Merlin IT'],
+    'Leroy Merlin PT': ['Leroy Merlin PT'],
+    'Leroy Merlin RO': ['Leroy Merlin RO'],
+    'Limango DE': ['Limango DE'],
+    'Maisons du Monde DE': ['MAISONDUMONDE_DEU'],
+    'Maisons du Monde ES': ['Maisons du Monde ES'],
+    'Maisons du Monde FR': ['MAISONDUMONDE'],
+    'Maisons du Monde IT': ['Maisons du Monde IT'],
+    'ManoMano DE': ['Manomano (DE)'],
+    'ManoMano ES': ['Mano Mano ES / MonEchelle'],
+    'ManoMano FR': ['Mano Mano FR'],
+    'ManoMano IT': ['ManoMano IT'],
+    'ManoMano UK': ['Manomano (UK)'],
+    'Manor CH': ['MANOR'],
+    'MediaMarkt Saturn CH': ['MediaMarkt Saturn CH'],
+    'Mömax AT': ['Mömax AT'],
+    'Mömax DE': ['Mömax DE'],
+    'Morele PL': ['Morele'],
+    'OBI CH': ['OBI CH'],
+    'OBI DE': ['OBI DE'],
+    'OnBuy UK': ['OnBuy'],
+    'PayBack DE': ['Payback DE'],
+    'Praxis NL': ['Praxis NL'],
+    'Robert Dyas UK': ['Robert Dyas'],
+    'Shein DE': ['Shein DE'],
+    'Shopping AT': ['Shöpping AT'],
+    'Temu CH': ['TEMU CH'],
+    'Trademax Dropship SE': ['Trademax SE'],
+    'Trademax OnDemand SE': ['Trademax SE'],
+    'Vente Unique AT': ['Vente Unique Austria'],
+    'Vente Unique BE': ['Vente Unique Belgium'],
+    'Vente Unique CH': ['Vente Unique CH'],
+    'Vente Unique DE': ['VENTEUNIQUE_DEU'],
+    'Vente Unique ES': ['Vente-Unique ES'],
+    'Vente Unique FR': ['Vente Unique'],
+    'Vente Unique IT': ['Vente Unique IT'],
+    'Vente Unique LU': ['Vente Unique Luxembourg'],
+    'Vente Unique NL': ['Vente-Unique NL'],
+    'Vente Unique PL': ['Vente Unique PL'],
+    'Vente Unique PT': ['Vente-Unique PT'],
+    'Vente Unique SE': ['Vente Unique SE'],
+    'Vente Unique UK': ['Vente Unique UK', 'Vente Unique UK 0% VAT'],
+    'Vivre HU': ['Vivre HU'],
+    'Vivre RO': ['Vivre RO'],
+    'Wayfair UK': ['Wayfair UK (20%)'],
+    'Wolf DE': ['Supply 24 (Wolf)'],
+    'Worten PT': ['Worten Marketplace'],
+    'XXXLutz AT': ['XXXLutz AT'],
+    'XXXLutz CH': ['XXXLutz CH'],
+    'XXXLutz CZ': ['XXXLutz CZ'],
+    'XXXLutz DE': ['XXXLutz'],
+    'XXXLutz HR': ['XXXLutz HR'],
+    'XXXLutz RO': ['XXXLutz RO'],
+    'XXXLutz SE': ['XXXLutz SE'],
+    'XXXLutz SI': ['XXXLutz SI'],
   };
 
-  // Wyjątki dla konkretnych partnerów (mają pierwszeństwo przed krajem)
-  const SELLER_BY_PARTNER = {
-    // 'Galaxus CH': ['...'],
-  };
-
-  const PARTNERS = [
-    'Allegro Brand PL', 'Allegro CZ', 'Allegro HU', 'Allegro PL', 'Allegro SK', 'Altex RO',
-    'Amazon + Prime DE', 'Amazon + Prime ES', 'Amazon + Prime FR', 'Amazon IT', 'Amazon NL',
-    'Amazon PL', 'Amazon SE', 'Amazon Seller Flex DE', 'Amazon UK', 'B&Q UK', 'Bauhaus DE',
-    'Black Red White PL', 'Bloop PT', 'Bol.com NL', 'Brico BE', 'Brico Bravo IT',
-    'Brico Depot ES', 'Brico Depot PT', 'Bricomarché FR', 'BUT FR', 'Carrefour ES',
-    'Carrefour FR', 'Castorama FR', 'Castorama PL', 'Cdiscount FR', 'Check24 DE',
-    'Conforama ES', 'Conforama FR', 'Conforama PT', 'Cultura FR', 'E-price IT', 'eBay DE',
-    'eBay FR', 'eBay IT', 'eBay UK', 'eMAG HU', 'eMAG RO', 'Empik PL', 'Furniture1 HU',
-    'Furniture1 LT', 'Galaxus CH', 'Gamm Vert FR', 'Hobbybox DK', 'Hobbybox FI',
-    'Hobbybox SE', 'Home&You PL', 'Home24 AT', 'Home24 CH', 'Home24 DE', 'Home24 FR',
-    'Home24 NL', 'Homedeco NL', 'Hornbach DE', 'Joybuy DE', 'Kaufland AT', 'Kaufland CZ',
-    'Kaufland DE', 'Kaufland PL', 'Kaufland SK', 'Kuanto Kusta PT', 'Leen Bakker BE',
-    'Leen Bakker NL', 'Leroy Merlin ES', 'Leroy Merlin FR', 'Leroy Merlin IT',
-    'Leroy Merlin PT', 'Leroy Merlin RO', 'Limango DE', 'Maisons du Monde DE',
-    'Maisons du Monde ES', 'Maisons du Monde FR', 'Maisons du Monde IT', 'ManoMano DE',
-    'ManoMano ES', 'ManoMano FR', 'ManoMano IT', 'ManoMano UK', 'Manor CH',
-    'MediaMarkt Saturn CH', 'Mömax AT', 'Mömax DE', 'Morele PL', 'OBI CH', 'OBI DE',
-    'OnBuy UK', 'PayBack DE', 'Praxis NL', 'Robert Dyas UK', 'Shein DE', 'Shopping AT',
-    'Temu CH', 'Trademax Dropship SE', 'Trademax OnDemand SE', 'Vente Unique AT',
-    'Vente Unique BE', 'Vente Unique CH', 'Vente Unique DE', 'Vente Unique ES',
-    'Vente Unique FR', 'Vente Unique IT', 'Vente Unique LU', 'Vente Unique NL',
-    'Vente Unique PL', 'Vente Unique PT', 'Vente Unique SE', 'Vente Unique UK',
-    'Vivre HU', 'Vivre RO', 'Wayfair UK', 'Wolf DE', 'Worten PT', 'XXXLutz AT',
-    'XXXLutz CH', 'XXXLutz CZ', 'XXXLutz DE', 'XXXLutz HR', 'XXXLutz RO', 'XXXLutz SE',
-    'XXXLutz SI',
+  // Sellerzy, z których NIE korzystamy (wartości `value` z listy Seller) – zostaną pominięci
+  const BLOCKED_SELLERS = [
+    'BCE',
+    'Beliani (International) GmbH',
+    'Beliani DE alternative',
+    'Beliani SP Alternative Seller',
+    'Beliani PL Alternative',
+    'Beliani PL Alternative Liquida',
   ];
 
   // ───────────────────────────────────────────────────────────────
@@ -67,90 +165,70 @@
   // ───────────────────────────────────────────────────────────────
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-  // Zmiany zrobione przez skrypt – żeby można je było cofnąć przy kolejnym filtrowaniu
-  let changes = [];
-
   function fireChange(el) {
     el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    if (window.jQuery) {
-      try { window.jQuery(el).trigger('change'); } catch (e) { /* ignoruj */ }
-    }
+    el.dispatchEvent(new Event('change', { bubbles: true })); // odpala też inline onchange="chooseSourceSeller()"
   }
 
-  function checkboxLabelText(input) {
-    if (input.labels && input.labels.length) return input.labels[0].textContent;
-    const parent = input.parentElement;
-    if (parent && parent.tagName === 'LABEL') return parent.textContent;
-    // układ tabelkowy: [checkbox] [nazwa] w sąsiednich komórkach
-    const td = input.closest('td');
-    if (td && td.nextElementSibling) return td.nextElementSibling.textContent;
-    if (input.nextSibling && input.nextSibling.textContent.trim()) return input.nextSibling.textContent;
-    return parent ? parent.textContent : '';
+  function deselectAll(select) {
+    Array.from(select.options).forEach((o) => { o.selected = false; });
   }
 
-  // Zaznacza pozycję o dokładnie takim tekście (option / checkbox / radio)
-  function selectByText(candidates) {
-    const wanted = candidates.map(norm);
-    let hits = 0;
+  function applyPartner(partner, setStatus) {
+    const sellerSel = document.getElementById('seller');
+    const sourceSel = document.getElementById('source_seller');
+    if (!sellerSel || !sourceSel) return setStatus('✖ nie znaleziono list Seller / Source Seller');
 
-    document.querySelectorAll('option').forEach((opt) => {
-      if (!wanted.includes(norm(opt.textContent))) return;
-      const sel = opt.closest('select');
-      if (!sel || opt.selected) return;
-      changes.push({ type: 'option', el: opt, sel, prevSelected: false });
-      opt.selected = true;
-      fireChange(sel);
-      hits++;
+    const wantedNames = (PARTNERS[partner] || []).map(norm);
+    const sourceOpts = Array.from(sourceSel.options).filter((o) => wantedNames.includes(norm(o.textContent)));
+    if (!sourceOpts.length) return setStatus(`✖ brak „${partner}” na liście Source Seller`);
+
+    // Seller wyliczony z klasy opcji Source Seller
+    const skipped = [];
+    const okSourceOpts = [];
+    const sellerValues = new Set();
+    sourceOpts.forEach((o) => {
+      const cls = (o.className || '').trim();
+      const sellerOpt = Array.from(sellerSel.options).find((s) => s.value === cls);
+      if (!cls || !sellerOpt) { skipped.push(`${o.textContent.trim()} (brak sellera)`); return; }
+      if (BLOCKED_SELLERS.includes(cls)) { skipped.push(`${o.textContent.trim()} (seller ${cls} pominięty)`); return; }
+      sellerValues.add(cls);
+      okSourceOpts.push(o);
     });
 
-    document.querySelectorAll('input[type=checkbox], input[type=radio]').forEach((inp) => {
-      if (!wanted.includes(norm(checkboxLabelText(inp)))) return;
-      if (inp.checked) return;
-      changes.push({ type: 'check', el: inp });
-      inp.click();
-      hits++;
+    if (!okSourceOpts.length) return setStatus('✖ żaden z sellerów nie jest dozwolony:\n' + skipped.join('\n'));
+
+    // 1) Seller – odpala chooseSourceSeller(), które przefiltruje Source Seller
+    deselectAll(sellerSel);
+    Array.from(sellerSel.options).forEach((s) => { if (sellerValues.has(s.value)) s.selected = true; });
+    fireChange(sellerSel);
+
+    // 2) Source Seller – po chwili, żeby nie nadpisało tego filtrowanie listy
+    setTimeout(() => {
+      deselectAll(sourceSel);
+      okSourceOpts.forEach((o) => { o.selected = true; });
+      fireChange(sourceSel);
+      console.log(LOG, 'filtr', { partner, sellers: [...sellerValues], source: okSourceOpts.map((o) => o.textContent.trim()) });
+    }, 150);
+
+    const lines = [
+      '✔ seller: ' + Array.from(sellerValues).join(', '),
+      '✔ source seller: ' + okSourceOpts.map((o) => o.textContent.trim()).join(', '),
+    ];
+    if (skipped.length) lines.push('⚠ pominięto: ' + skipped.join('; '));
+    setStatus(lines.join('\n'));
+  }
+
+  function clearAll(setStatus) {
+    const sellerSel = document.getElementById('seller');
+    const sourceSel = document.getElementById('source_seller');
+    [sellerSel, sourceSel].forEach((sel) => {
+      if (!sel) return;
+      deselectAll(sel);
+      if (sel.options[0]) sel.options[0].selected = true; // "All"
     });
-
-    return hits;
-  }
-
-  function undoChanges() {
-    changes.reverse().forEach((c) => {
-      if (c.type === 'option') {
-        c.el.selected = c.prevSelected;
-        fireChange(c.sel);
-      } else if (c.type === 'check' && c.el.checked) {
-        c.el.click();
-      }
-    });
-    changes = [];
-  }
-
-  function sellersFor(partner) {
-    if (SELLER_BY_PARTNER[partner]) return SELLER_BY_PARTNER[partner];
-    const country = partner.trim().split(' ').pop();
-    return SELLER_BY_COUNTRY[country] || null;
-  }
-
-  // ───────────────────────────────────────────────────────────────
-  // Akcja główna
-  // ───────────────────────────────────────────────────────────────
-  function applyFilter(partner, setStatus) {
-    undoChanges();
-
-    const partnerHits = selectByText([partner]);
-    const sellers = sellersFor(partner);
-    let sellerHits = 0;
-    if (sellers) sellerHits = selectByText(sellers);
-
-    console.log(LOG, 'filtr', { partner, partnerHits, sellers, sellerHits });
-
-    const msg = [];
-    msg.push(partnerHits ? `✔ partner: ${partner}` : `✖ nie znaleziono partnera „${partner}”`);
-    if (!sellers) msg.push('⚠ brak zdefiniowanego Sellera dla tego kraju');
-    else msg.push(sellerHits ? `✔ seller: ${sellers[0]}` : `✖ nie znaleziono Sellera (${sellers.join(' / ')})`);
-    setStatus(msg.join('\n'));
+    if (sellerSel) fireChange(sellerSel);
+    setStatus('Wyczyszczono (All)');
   }
 
   // ───────────────────────────────────────────────────────────────
@@ -162,7 +240,7 @@
     const box = document.createElement('div');
     box.id = 'tm-partner-filter';
     box.style.cssText = [
-      'position:fixed', 'top:80px', 'right:12px', 'z-index:99999', 'width:260px',
+      'position:fixed', 'top:80px', 'right:12px', 'z-index:99999', 'width:270px',
       'background:#fff', `border:2px solid ${BRAND}`, 'border-radius:6px',
       'box-shadow:0 2px 8px rgba(0,0,0,.25)', 'font:13px Arial,sans-serif', 'padding:8px',
     ].join(';');
@@ -175,46 +253,41 @@
 
     const input = document.createElement('input');
     input.setAttribute('list', 'tm-partner-list');
-    input.placeholder = 'np. Kaufland AT';
+    input.placeholder = 'wpisz / wybierz partnera';
     input.style.cssText = 'width:100%;box-sizing:border-box;padding:4px;margin-bottom:6px';
 
     const dl = document.createElement('datalist');
     dl.id = 'tm-partner-list';
-    PARTNERS.forEach((p) => {
+    Object.keys(PARTNERS).forEach((p) => {
       const o = document.createElement('option');
       o.value = p;
       dl.appendChild(o);
     });
 
-    const btnStyle = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;margin-right:6px`;
-    const apply = document.createElement('button');
-    apply.textContent = 'Zastosuj';
-    apply.style.cssText = btnStyle;
     const clear = document.createElement('button');
-    clear.textContent = 'Wyczyść';
-    clear.style.cssText = btnStyle;
+    clear.type = 'button';
+    clear.textContent = 'Wyczyść (All)';
+    clear.style.cssText = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer`;
 
     const status = document.createElement('pre');
     status.style.cssText = 'margin:8px 0 0;white-space:pre-wrap;font:12px Arial,sans-serif';
     const setStatus = (t) => { status.textContent = t; };
 
+    // Automatycznie po wybraniu partnera z listy
     const run = () => {
-      const val = input.value.trim();
-      const match = PARTNERS.find((p) => norm(p) === norm(val));
-      if (!match) return setStatus('✖ wybierz partnera z listy podpowiedzi');
-      applyFilter(match, setStatus);
+      const match = Object.keys(PARTNERS).find((p) => norm(p) === norm(input.value));
+      if (match) applyPartner(match, setStatus);
     };
-
-    apply.addEventListener('click', run);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
-    clear.addEventListener('click', () => { undoChanges(); input.value = ''; setStatus('Wyczyszczono zaznaczenia ze skryptu'); });
+    input.addEventListener('input', run);
+    input.addEventListener('change', run);
+    clear.addEventListener('click', () => { input.value = ''; clearAll(setStatus); });
     title.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
 
-    body.append(input, dl, apply, clear, status);
+    body.append(input, dl, clear, status);
     box.append(title, body);
     document.body.appendChild(box);
   }
 
   buildPanel();
-  console.log(LOG, 'total-cycle-time-partner-filter załadowany');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.1.0 załadowany');
 })();
