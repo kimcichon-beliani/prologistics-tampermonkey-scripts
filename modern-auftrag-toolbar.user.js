@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      1.9
+// @version      2.0
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v1.9');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.0');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -93,7 +93,7 @@
                 transform: translateY(0) !important;
             }
 
-            /* Przyciski akcji głównych (New Ticket oraz aktywny Change Order) w kolorze bordo */
+            /* Przyciski akcji głównych (New Ticket, Change Order) w kolorze bordo */
             .tm-btn-primary {
                 background-color: ${COLORS.accent} !important;
                 color: #ffffff !important;
@@ -109,7 +109,7 @@
                 box-shadow: 0 4px 10px rgba(91, 0, 0, 0.35) !important;
             }
 
-            /* Przycisk nieaktywny (np. Change Order dla wysłanego zamówienia) */
+            /* Element informacyjny (np. Impostor Mode) */
             .tm-btn-disabled {
                 background-color: #f1f5f9 !important;
                 color: #94a3b8 !important;
@@ -122,17 +122,15 @@
         document.head.appendChild(style);
     }
 
-    // Szukamy oryginalnego przycisku "Change Order" - najpierw po standardowych
-    // selektorach, a jeśli to nie zadziała (inna struktura na danej podstronie),
-    // fallback po samej treści tekstowej. Dzięki temu wykrywanie jest odporne
-    // na różnice w markupie między podstronami.
+    // Szukamy oryginalnego linku "Change order" w starym toolbarze.
+    // Kolejność: 1) link do order.php, 2) tekst zawierający "change order".
+    // NIE używamy już klasy --disabled ani span[title*="shipped"], bo w nowej wersji
+    // strony tę klasę ma też np. "Impostor Mode", co powodowało podmianę złego elementu.
     function findChangeOrderElement(oldToolbar) {
-        let el = oldToolbar.querySelector(
-            'a[href*="change"], span[title*="shipped"], .auftrag-toolbar__btn--disabled'
-        );
-        if (el) return el;
+        const byHref = oldToolbar.querySelector('a[href*="order.php"]');
+        if (byHref) return byHref;
 
-        const candidates = oldToolbar.querySelectorAll('a, span, button');
+        const candidates = oldToolbar.querySelectorAll('a, button, span');
         for (const c of candidates) {
             if (c.textContent.trim().toLowerCase().includes('change order')) {
                 return c;
@@ -147,10 +145,17 @@
 
         const originalForm = oldToolbar.querySelector('form');
         let auftragNumber = '';
+        let txnid = '3';
         if (originalForm) {
             const numInput = originalForm.querySelector('input[name="number"]');
             if (numInput) auftragNumber = numInput.value;
+            const txnInput = originalForm.querySelector('input[name="txnid"]');
+            if (txnInput && txnInput.value) txnid = txnInput.value;
         }
+
+        // Info o "Impostor Mode" zapamiętujemy zanim ukryjemy stary pasek
+        const impostorEl = Array.from(oldToolbar.querySelectorAll('span'))
+            .find(s => s.textContent.trim().toLowerCase().includes('impostor'));
 
         const newToolbar = document.createElement('div');
         newToolbar.id = 'tm-custom-auftrag-toolbar';
@@ -170,38 +175,26 @@
             newToolbar.appendChild(a);
         });
 
-        // 2. Change Order
-        // WAŻNE: nie tworzymy nowego elementu i nie kopiujemy tylko href —
-        // jeśli oryginalny przycisk działa przez onclick / JS listener (nie tylko href),
-        // kopiowanie samego atrybutu href gubi tę logikę i przycisk wygląda aktywny,
-        // ale nic nie robi po kliknięciu.
-        // Zamiast tego PRZENOSIMY oryginalny element do nowego toolbaru
-        // (appendChild na istniejącym nodzie przenosi go, nie klonuje) —
-        // wszystkie oryginalne atrybuty i handlery zostają zachowane,
-        // a my tylko nadpisujemy klasy/tekst pod nowy wygląd.
+        // 2. Change Order — ZAWSZE aktywny.
+        // Jeśli oryginalny element to działający link (<a href>), przenosimy go
+        // (zachowuje atrybuty i handlery). W przeciwnym razie (brak elementu albo
+        // wersja bez linku) budujemy link sami z numeru Auftrag.
         const oldChangeBtn = findChangeOrderElement(oldToolbar);
         let changeBtn;
 
-        if (oldChangeBtn) {
-            const isChangeDisabled =
-                oldChangeBtn.classList.contains('auftrag-toolbar__btn--disabled') ||
-                oldChangeBtn.tagName.toLowerCase() === 'span';
-
-            changeBtn = oldChangeBtn; // przenosimy, nie kopiujemy
-            changeBtn.textContent = 'Change Order';
-            changeBtn.className = `tm-toolbar-btn ${isChangeDisabled ? 'tm-btn-disabled' : 'tm-btn-primary'}`;
-
-            if (isChangeDisabled) {
-                changeBtn.title = 'You cannot change the order for a shipped Auftrag';
-            }
+        if (oldChangeBtn && oldChangeBtn.tagName.toLowerCase() === 'a' && oldChangeBtn.getAttribute('href')) {
+            changeBtn = oldChangeBtn;
         } else {
-            // Fallback, jeśli w ogóle nie znaleziono przycisku w starym toolbarze
-            changeBtn = document.createElement('span');
-            changeBtn.className = 'tm-toolbar-btn tm-btn-disabled';
-            changeBtn.textContent = 'Change Order';
-            changeBtn.title = 'Nie znaleziono oryginalnego przycisku Change Order';
+            changeBtn = document.createElement('a');
+            if (auftragNumber) {
+                changeBtn.href = `order.php?auction=${encodeURIComponent(auftragNumber)}&txnid=${encodeURIComponent(txnid)}&admin=1`;
+            }
         }
 
+        changeBtn.target = '_blank';
+        changeBtn.textContent = 'Change Order';
+        changeBtn.className = 'tm-toolbar-btn tm-btn-primary';
+        changeBtn.removeAttribute('title');
         newToolbar.appendChild(changeBtn);
 
         // 3. Formularz New Ticket
@@ -213,7 +206,7 @@
 
             form.innerHTML = `
                 <input type="hidden" name="number" value="${auftragNumber}">
-                <input type="hidden" name="txnid" value="3">
+                <input type="hidden" name="txnid" value="${txnid}">
                 <input type="hidden" name="CRM_Ticket" value="1">
                 <button type="submit" class="tm-toolbar-btn tm-btn-primary">New Ticket</button>
             `;
@@ -233,6 +226,15 @@
             a.textContent = link.label;
             newToolbar.appendChild(a);
         });
+
+        // 5. Impostor Mode (tylko informacyjnie, jeśli występuje)
+        if (impostorEl) {
+            const info = document.createElement('span');
+            info.className = 'tm-toolbar-btn tm-btn-disabled';
+            info.textContent = impostorEl.textContent.trim();
+            if (impostorEl.title) info.title = impostorEl.title;
+            newToolbar.appendChild(info);
+        }
 
         oldToolbar.parentNode.insertBefore(newToolbar, oldToolbar);
     }
