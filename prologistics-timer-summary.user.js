@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      1.7.2
+// @version      1.8.0
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -66,7 +66,7 @@
     }
 
     // zmniejsza czcionkę, aż tekst zmieści się w jednej linii (od 12 px do 8 px)
-    function fitText(el, max = 12, min = 8) {
+    function fitText(el, max = 11, min = 7.5) {
         let size = max;
         el.style.fontSize = size + 'px';
         if (!el.clientWidth) return;
@@ -180,30 +180,76 @@
         if (document.getElementById(PANEL_ID)) return;
         const box = document.createElement('div');
         box.id = PANEL_ID;
-        box.style.cssText = `position:fixed;top:51px;right:96px;z-index:99999;width:390px;max-width:90vw;max-height:70vh;box-sizing:border-box;white-space:nowrap;
-            overflow:auto;background:#fff;border:2px solid ${BRAND};border-radius:10px;
-            box-shadow:0 4px 16px rgba(0,0,0,.25);font:13px/1.4 Arial,sans-serif;color:#222;`;
+        box.style.cssText = `position:fixed;top:51px;right:96px;z-index:99999;width:340px;max-width:90vw;box-sizing:border-box;white-space:nowrap;
+            overflow:hidden;background:#fff;border:2px solid ${BRAND};border-radius:10px;
+            box-shadow:0 4px 16px rgba(0,0,0,.25);font:11px/1.4 Arial,sans-serif;color:#222;`;
         box.innerHTML = `
-            <div id="tm-ts-head" style="background:${BRAND};color:#fff;padding:8px 12px;cursor:pointer;
-                display:flex;justify-content:space-between;align-items:center;font-weight:bold;">
+            <div id="tm-ts-head" style="background:${BRAND};color:#fff;padding:6px 10px;cursor:move;user-select:none;touch-action:none;font-size:12px;
+                display:flex;justify-content:space-between;align-items:center;font-weight:bold;" title="Przeciągnij, aby przesunąć · kliknij, aby zwinąć">
                 <span>⏱ Summary of Timers</span><span id="tm-ts-toggle">–</span>
             </div>
-            <div id="tm-ts-body" style="padding:10px 12px;">
-                <div style="margin-bottom:8px;display:flex;align-items:center;gap:4px;position:relative;">
+            <div id="tm-ts-body" style="padding:8px 10px;">
+                <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;position:relative;">
                     <input type="text" id="tm-ts-date" maxlength="10" placeholder="DD.MM.RRRR" title="Dzień.miesiąc.rok"
-                        style="width:88px;padding:2px 4px;font-size:12px;text-align:center;box-sizing:border-box;">
+                        style="width:80px;padding:1px 4px;font-size:11px;text-align:center;box-sizing:border-box;">
                     <button type="button" id="tm-ts-cal" title="Wybierz z kalendarza"
-                        style="cursor:pointer;padding:1px 5px;font-size:12px;">📆</button>
+                        style="cursor:pointer;padding:0 4px;font-size:11px;">📆</button>
                     <input type="date" id="tm-ts-native" tabindex="-1"
                         style="position:absolute;left:0;top:100%;width:1px;height:1px;opacity:0;pointer-events:none;">
                 </div>
-                <div id="tm-ts-warn" style="margin-bottom:8px;"></div>
-                <div id="tm-ts-info" style="margin-bottom:8px;color:#555;overflow:hidden;white-space:nowrap;"></div>
+                <div id="tm-ts-warn" style="margin-bottom:6px;"></div>
+                <div id="tm-ts-info" style="margin-bottom:6px;color:#555;overflow:hidden;white-space:nowrap;"></div>
                 <div id="tm-ts-out"></div>
             </div>`;
         document.body.appendChild(box);
 
-        box.querySelector('#tm-ts-head').addEventListener('click', () => {
+        // --- przeciąganie okienka za nagłówek (pozycja zapamiętywana w przeglądarce) ---
+        const head = box.querySelector('#tm-ts-head');
+        const KEY = 'tm-ts-pos';
+        const clamp = (left, top) => ({
+            left: Math.max(0, Math.min(left, window.innerWidth - box.offsetWidth)),
+            top: Math.max(0, Math.min(top, window.innerHeight - 30)),
+        });
+        const place = (left, top) => {
+            const c = clamp(left, top);
+            box.style.left = c.left + 'px';
+            box.style.top = c.top + 'px';
+            box.style.right = 'auto';
+        };
+        try {
+            const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+            if (saved && typeof saved.left === 'number') place(saved.left, saved.top);
+        } catch (e) { /* brak zapisanej pozycji */ }
+        window.addEventListener('resize', () => {
+            if (box.style.right === 'auto') place(box.offsetLeft, box.offsetTop);
+        });
+
+        let drag = null;
+        let moved = false;
+        head.addEventListener('pointerdown', ev => {
+            if (ev.button !== 0) return;
+            const r = box.getBoundingClientRect();
+            drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top, x: ev.clientX, y: ev.clientY };
+            moved = false;
+            head.setPointerCapture(ev.pointerId);
+        });
+        head.addEventListener('pointermove', ev => {
+            if (!drag) return;
+            if (!moved && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4) return;
+            moved = true;
+            place(ev.clientX - drag.dx, ev.clientY - drag.dy);
+        });
+        head.addEventListener('pointerup', ev => {
+            if (!drag) return;
+            head.releasePointerCapture(ev.pointerId);
+            drag = null;
+            if (moved) {
+                try { localStorage.setItem(KEY, JSON.stringify({ left: box.offsetLeft, top: box.offsetTop })); } catch (e) { /* ignoruj */ }
+            }
+        });
+
+        head.addEventListener('click', () => {
+            if (moved) { moved = false; return; } // to było przeciąganie, nie kliknięcie
             const b = box.querySelector('#tm-ts-body');
             const hidden = b.style.display === 'none';
             b.style.display = hidden ? '' : 'none';
@@ -258,7 +304,7 @@
         // ukryte komentarze: spróbuj wczytać wszystkie, a jeśli się nie da – ostrzeż
         const hidden = ensureAll();
         warn.innerHTML = hidden
-            ? `<div style="color:#a60;font-size:12px;white-space:normal;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
+            ? `<div style="color:#a60;font-size:11px;white-space:normal;">⚠ Widoczne ${hidden.shown} z ${hidden.total} komentarzy – ` +
               `${loadAttempts >= 3 ? 'nie udało się wczytać automatycznie' : 'wczytuję pozostałe…'} ` +
               `<button class="tm-ts-load" style="cursor:pointer;margin-left:4px;">Wczytaj wszystkie</button></div>`
             : '';
@@ -292,27 +338,27 @@
         const sumLabels = rows.reduce((a, e) => a + e.seconds, 0);
         const manualCount = rows.filter(e => e.manual).length;
 
-        const td = 'padding:2px 0;';
-        let html = `<table style="table-layout:fixed;width:100%;border-collapse:collapse;font-size:12px;">
-            <colgroup><col><col style="width:54px;"><col style="width:62px;"><col style="width:88px;"></colgroup>`;
+        // siatka o stałych kolumnach; przewija się tylko lista partnerów, RAZEM zostaje przyklejone na dole
+        const GRID = 'display:grid;grid-template-columns:minmax(0,1fr) 40px 52px 72px;column-gap:4px;align-items:baseline;line-height:18px;';
+        const mono = 'text-align:right;font-family:monospace;';
+        let html = `<div style="max-height:170px;overflow-y:auto;scrollbar-width:thin;scrollbar-gutter:stable;">`;
         [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pl', { sensitivity: 'base' })).forEach(([label, v]) => {
             const safe = label.replace(/</g, '&lt;');
             const man = v.manual ? ` <span title="w tym wpisów ręcznych: ${v.manual}">✎${v.manual}</span>` : '';
-            html += `<tr style="border-bottom:1px solid #eee;">
-                <td title="${safe}" style="${td}overflow:hidden;text-overflow:ellipsis;">${safe}</td>
-                <td style="${td}color:#888;text-align:right;padding-right:8px;">×${v.n}${man}</td>
-                <td style="${td}text-align:right;font-family:monospace;">${fmt(v.sec)}</td>
-                <td style="${td}text-align:right;font-family:monospace;">${minCell(v.sec)}</td></tr>`;
+            html += `<div style="${GRID}border-bottom:1px solid #eee;">
+                <span title="${safe}" style="overflow:hidden;text-overflow:ellipsis;">${safe}</span>
+                <span style="color:#888;text-align:right;">×${v.n}${man}</span>
+                <span style="${mono}">${fmt(v.sec)}</span>
+                <span style="${mono}">${minCell(v.sec)}</span></div>`;
         });
-        const tt = 'padding:4px 0 0;font-weight:bold;';
         const totMan = manualCount ? ` <span title="w tym wpisów ręcznych: ${manualCount}">✎${manualCount}</span>` : '';
-        html += `<tr>
-            <td style="${tt}color:${BRAND};">RAZEM</td>
-            <td style="${tt}color:#888;font-weight:normal;text-align:right;padding-right:8px;" title="liczba wpisów">×${uniq.size}${totMan}</td>
-            <td style="${tt}text-align:right;font-family:monospace;color:${BRAND};">${fmt(total)}</td>
-            <td style="${tt}text-align:right;font-family:monospace;color:${BRAND};">${minCell(total)}</td></tr></table>`;
+        html += `<div style="${GRID}position:sticky;bottom:0;background:#fff;border-top:1px solid ${BRAND};padding-top:2px;font-weight:bold;">
+            <span style="color:${BRAND};">RAZEM</span>
+            <span style="color:#888;font-weight:normal;text-align:right;" title="liczba wpisów">×${uniq.size}${totMan}</span>
+            <span style="${mono}color:${BRAND};">${fmt(total)}</span>
+            <span style="${mono}color:${BRAND};">${minCell(total)}</span></div></div>`;
         if (sumLabels !== total) {
-            html += `<div style="margin-top:6px;color:#a60;font-size:12px;cursor:help;overflow:hidden;text-overflow:ellipsis;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
+            html += `<div style="margin-top:6px;color:#a60;font-size:11px;cursor:help;overflow:hidden;text-overflow:ellipsis;" title="Ten sam timer ma kilka komentarzy (np. dwie etykiety). Pod każdą etykietą liczy się jego pełny czas, ale w RAZEM tylko raz.">⚠ Suma po komentarzach: ${fmtFull(sumLabels)}</div>`;
         }
         out.innerHTML = html;
     }
