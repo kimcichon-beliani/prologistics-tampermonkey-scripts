@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Total Cycle Time – szybki filtr partnera
+// @name         Total Cycle Time – quick partner filter
 // @namespace    kimrioter
-// @version      1.1.0
-// @description  Wybierasz partnera w panelu, skrypt sam uzupełnia Seller i Source Seller w total_cycle_time.php
+// @version      1.2.0
+// @description  Pick a partner in the panel and the script fills in Seller and Source Seller on total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @grant        none
@@ -177,11 +177,11 @@
   function applyPartner(partner, setStatus) {
     const sellerSel = document.getElementById('seller');
     const sourceSel = document.getElementById('source_seller');
-    if (!sellerSel || !sourceSel) return setStatus('✖ nie znaleziono list Seller / Source Seller');
+    if (!sellerSel || !sourceSel) return setStatus('✖ Seller / Source Seller lists not found');
 
     const wantedNames = (PARTNERS[partner] || []).map(norm);
     const sourceOpts = Array.from(sourceSel.options).filter((o) => wantedNames.includes(norm(o.textContent)));
-    if (!sourceOpts.length) return setStatus(`✖ brak „${partner}” na liście Source Seller`);
+    if (!sourceOpts.length) return setStatus(`✖ "${partner}" not found in the Source Seller list`);
 
     // Seller wyliczony z klasy opcji Source Seller
     const skipped = [];
@@ -190,13 +190,13 @@
     sourceOpts.forEach((o) => {
       const cls = (o.className || '').trim();
       const sellerOpt = Array.from(sellerSel.options).find((s) => s.value === cls);
-      if (!cls || !sellerOpt) { skipped.push(`${o.textContent.trim()} (brak sellera)`); return; }
-      if (BLOCKED_SELLERS.includes(cls)) { skipped.push(`${o.textContent.trim()} (seller ${cls} pominięty)`); return; }
+      if (!cls || !sellerOpt) { skipped.push(`${o.textContent.trim()} (no seller)`); return; }
+      if (BLOCKED_SELLERS.includes(cls)) { skipped.push(`${o.textContent.trim()} (seller ${cls} skipped)`); return; }
       sellerValues.add(cls);
       okSourceOpts.push(o);
     });
 
-    if (!okSourceOpts.length) return setStatus('✖ żaden z sellerów nie jest dozwolony:\n' + skipped.join('\n'));
+    if (!okSourceOpts.length) return setStatus('✖ none of the sellers is allowed:\n' + skipped.join('\n'));
 
     // 1) Seller – odpala chooseSourceSeller(), które przefiltruje Source Seller
     deselectAll(sellerSel);
@@ -215,7 +215,7 @@
       '✔ seller: ' + Array.from(sellerValues).join(', '),
       '✔ source seller: ' + okSourceOpts.map((o) => o.textContent.trim()).join(', '),
     ];
-    if (skipped.length) lines.push('⚠ pominięto: ' + skipped.join('; '));
+    if (skipped.length) lines.push('⚠ skipped: ' + skipped.join('; '));
     setStatus(lines.join('\n'));
   }
 
@@ -228,7 +228,7 @@
       if (sel.options[0]) sel.options[0].selected = true; // "All"
     });
     if (sellerSel) fireChange(sellerSel);
-    setStatus('Wyczyszczono (All)');
+    setStatus('Cleared (All)');
   }
 
   // ───────────────────────────────────────────────────────────────
@@ -246,48 +246,73 @@
     ].join(';');
 
     const title = document.createElement('div');
-    title.textContent = 'Filtr partnera';
+    title.textContent = 'Partner filter';
     title.style.cssText = `font-weight:bold;color:${BRAND};margin-bottom:6px;cursor:pointer`;
 
     const body = document.createElement('div');
 
-    const input = document.createElement('input');
-    input.setAttribute('list', 'tm-partner-list');
-    input.placeholder = 'wpisz / wybierz partnera';
-    input.style.cssText = 'width:100%;box-sizing:border-box;padding:4px;margin-bottom:6px';
+    // Wyszukiwarka tylko przewija listę do dopasowania – niczego nie ukrywa
+    const search = document.createElement('input');
+    search.placeholder = 'Jump to partner...';
+    search.style.cssText = 'width:100%;box-sizing:border-box;padding:4px;margin-bottom:6px';
 
-    const dl = document.createElement('datalist');
-    dl.id = 'tm-partner-list';
-    Object.keys(PARTNERS).forEach((p) => {
-      const o = document.createElement('option');
-      o.value = p;
-      dl.appendChild(o);
+    // Lista wszystkich partnerów – zawsze w całości, przewijana
+    const list = document.createElement('div');
+    list.style.cssText = 'max-height:240px;overflow-y:auto;border:1px solid #ccc;border-radius:4px;margin-bottom:6px';
+
+    const items = {};
+    let selected = null;
+    const setStatus = (t) => { status.textContent = t; };
+
+    const highlight = (name) => {
+      if (selected && items[selected]) {
+        items[selected].style.background = '';
+        items[selected].style.color = '';
+      }
+      selected = name;
+      if (name && items[name]) {
+        items[name].style.background = BRAND;
+        items[name].style.color = '#fff';
+      }
+    };
+
+    Object.keys(PARTNERS).forEach((name) => {
+      const row = document.createElement('div');
+      row.textContent = name;
+      row.style.cssText = 'padding:3px 6px;cursor:pointer';
+      row.addEventListener('mouseenter', () => { if (name !== selected) row.style.background = '#f0e0e0'; });
+      row.addEventListener('mouseleave', () => { if (name !== selected) row.style.background = ''; });
+      row.addEventListener('click', () => {
+        highlight(name);
+        applyPartner(name, setStatus);
+      });
+      items[name] = row;
+      list.appendChild(row);
+    });
+
+    search.addEventListener('input', () => {
+      const q = norm(search.value);
+      if (!q) return;
+      const hit = Object.keys(items).find((n) => norm(n).startsWith(q)) || Object.keys(items).find((n) => norm(n).includes(q));
+      if (hit) items[hit].scrollIntoView({ block: 'nearest' });
     });
 
     const clear = document.createElement('button');
     clear.type = 'button';
-    clear.textContent = 'Wyczyść (All)';
+    clear.textContent = 'Clear (All)';
     clear.style.cssText = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer`;
+    clear.addEventListener('click', () => { highlight(null); search.value = ''; clearAll(setStatus); });
 
     const status = document.createElement('pre');
     status.style.cssText = 'margin:8px 0 0;white-space:pre-wrap;font:12px Arial,sans-serif';
-    const setStatus = (t) => { status.textContent = t; };
 
-    // Automatycznie po wybraniu partnera z listy
-    const run = () => {
-      const match = Object.keys(PARTNERS).find((p) => norm(p) === norm(input.value));
-      if (match) applyPartner(match, setStatus);
-    };
-    input.addEventListener('input', run);
-    input.addEventListener('change', run);
-    clear.addEventListener('click', () => { input.value = ''; clearAll(setStatus); });
     title.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
 
-    body.append(input, dl, clear, status);
+    body.append(search, list, clear, status);
     box.append(title, body);
     document.body.appendChild(box);
   }
 
   buildPanel();
-  console.log(LOG, 'total-cycle-time-partner-filter v1.1.0 załadowany');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.2.0 loaded');
 })();
