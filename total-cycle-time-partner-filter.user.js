@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – quick partner filter
 // @namespace    kimrioter
-// @version      1.2.0
+// @version      1.3.0
 // @description  Pick a partner in the panel and the script fills in Seller and Source Seller on total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -137,7 +137,7 @@
     'Vente Unique UK': ['Vente Unique UK', 'Vente Unique UK 0% VAT'],
     'Vivre HU': ['Vivre HU'],
     'Vivre RO': ['Vivre RO'],
-    'Wayfair UK': ['Wayfair UK (20%)'],
+    'Wayfair UK': ['Wayfair UK from DE (0%)'],
     'Wolf DE': ['Supply 24 (Wolf)'],
     'Worten PT': ['Worten Marketplace'],
     'XXXLutz AT': ['XXXLutz AT'],
@@ -148,6 +148,12 @@
     'XXXLutz RO': ['XXXLutz RO'],
     'XXXLutz SE': ['XXXLutz SE'],
     'XXXLutz SI': ['XXXLutz SI'],
+  };
+
+  // Wyjątki: partner, który wysyłamy spod innego sellera niż wynika z klasy Source Sellera
+  // (wartość `value` z listy Seller). Wayfair UK wysyłamy spod sellera DE.
+  const SELLER_OVERRIDE = {
+    'Wayfair UK': 'Beliani DE',
   };
 
   // Sellerzy, z których NIE korzystamy (wartości `value` z listy Seller) – zostaną pominięci
@@ -188,7 +194,7 @@
     const okSourceOpts = [];
     const sellerValues = new Set();
     sourceOpts.forEach((o) => {
-      const cls = (o.className || '').trim();
+      const cls = SELLER_OVERRIDE[partner] || (o.className || '').trim();
       const sellerOpt = Array.from(sellerSel.options).find((s) => s.value === cls);
       if (!cls || !sellerOpt) { skipped.push(`${o.textContent.trim()} (no seller)`); return; }
       if (BLOCKED_SELLERS.includes(cls)) { skipped.push(`${o.textContent.trim()} (seller ${cls} skipped)`); return; }
@@ -314,5 +320,5 @@
   }
 
   buildPanel();
-  console.log(LOG, 'total-cycle-time-partner-filter v1.2.0 loaded');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.3.0 loaded');
 })();
