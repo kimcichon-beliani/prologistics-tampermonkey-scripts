@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – quick partner filter
 // @namespace    kimrioter
-// @version      1.4.0
+// @version      1.5.0
 // @description  Pick a partner in the panel and the script fills in Seller and Source Seller on total_cycle_time.php
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -325,12 +325,30 @@
     buttons.style.cssText = 'display:flex;gap:6px';
     buttons.append(searchBtn, clear);
 
+    // Zakres dat – tylko podgląd (nieedytowalny), przepisywany z pól #from i #to
+    const range = document.createElement('div');
+    range.style.cssText = `margin-top:8px;padding:4px 6px;background:#f5f5f5;border-radius:4px;color:${BRAND};font-weight:bold`;
+    const renderRange = () => {
+      const from = document.getElementById('from');
+      const to = document.getElementById('to');
+      const txt = `Date range: ${from ? from.value : '?'} → ${to ? to.value : '?'}`;
+      if (range.textContent !== txt) range.textContent = txt;
+    };
+    renderRange();
+    ['from', 'to'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', renderRange);
+      el.addEventListener('change', renderRange);
+    });
+    setInterval(renderRange, 500); // datepicker ustawia wartość bez zdarzeń
+
     const status = document.createElement('pre');
     status.style.cssText = 'margin:8px 0 0;white-space:pre-wrap;font:12px Arial,sans-serif';
 
     title.addEventListener('click', () => { body.style.display = body.style.display === 'none' ? '' : 'none'; });
 
-    body.append(search, list, buttons, status);
+    body.append(search, list, buttons, range, status);
     box.append(title, body);
     document.body.appendChild(box);
   }
@@ -344,5 +362,5 @@
   buildPanel();
   setTimeout(removeLegacyPanels, 1000);
   setTimeout(removeLegacyPanels, 3000);
-  console.log(LOG, 'total-cycle-time-partner-filter v1.4.0 loaded');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.5.0 loaded');
 })();
