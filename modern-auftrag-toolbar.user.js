@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Auftrag Toolbar — Prologistics
 // @namespace    https://www.prologistics.info/
-// @version      2.2
+// @version      2.3
 // @description  Nowoczesny pasek nawigacji dopasowany do kolorystyki Prologistics (Bordo).
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -13,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.2');
+    console.log('[TM Modern Auftrag Toolbar by kimrioter] Start v2.3');
 
     const COLORS = {
         accent: '#750000',       // Prologistics Burgundy Red
@@ -177,10 +177,18 @@
         // wyszarzony, nieklikalny przycisk z oryginalnym title.
         const oldChangeBtn = findChangeOrderElement(oldToolbar);
         const changeHref = oldChangeBtn && oldChangeBtn.tagName.toLowerCase() === 'a'
-            ? oldChangeBtn.getAttribute('href')
-            : null;
-        const isChangeDisabled = !changeHref ||
-            oldChangeBtn.classList.contains('auftrag-toolbar__btn--disabled');
+            ? (oldChangeBtn.getAttribute('href') || '')
+            : '';
+        // Nieaktywny, jeśli: brak elementu, to nie jest <a>, href jest pusty/'#'/nie
+        // prowadzi do order.php, albo element (lub jego rodzic) ma klasę/atrybut disabled.
+        const isChangeDisabled = !oldChangeBtn ||
+            !changeHref ||
+            changeHref.trim() === '#' ||
+            !/order\.php/i.test(changeHref) ||
+            !!oldChangeBtn.closest('[class*="disabled"], [aria-disabled="true"], [disabled]');
+        console.log('[TM Modern Auftrag Toolbar] Change Order:',
+            isChangeDisabled ? 'DISABLED' : 'ACTIVE',
+            oldChangeBtn ? oldChangeBtn.outerHTML : '(nie znaleziono elementu)');
 
         let changeBtn;
         if (!isChangeDisabled) {
