@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Podsumowanie timerów (issue logs)
 // @namespace    kimrioter
-// @version      2.0.0
+// @version      2.0.1
 // @description  Zczytuje timery z komentarzem z logów zadania i podsumowuje czas z wybranego dnia (timery z komentarzem + dodane ręcznie, per komentarz)
 // @author       kimrioter
 // @match        https://www.prologistics.info/react/logs/issue_logs/*
@@ -123,11 +123,11 @@
             if (m) return { link, el: host, shown: +m[1], total: +m[2] };
         }
         // 2) awaryjnie po komórce tabeli z tym tekstem
-        for (const td of document.querySelectorAll('td')) {
-            const t = td.textContent;
-            if (t.length > 200 || !t.includes('You see')) continue;
-            const m = t.match(NOTICE_RE);
-            if (m) return { link: null, el: td, shown: +m[1], total: +m[2] };
+        for (const el of document.querySelectorAll('td, div, span, p')) {
+            const f = el.firstChild;
+            if (!f || f.nodeType !== 3 || !f.nodeValue.includes('You see')) continue;
+            const m = el.textContent.match(NOTICE_RE);
+            if (m) return { link: null, el, shown: +m[1], total: +m[2] };
         }
         return null;
     }
@@ -151,11 +151,23 @@
             const e = parse(raw.replace(/\s+/g, ' ').trim());
             if (e) found.push(e);
         };
-        document.querySelectorAll('td').forEach(collect);
+        // 1) elementy bez dzieci (sam tekst), np. <span class="styles-module__wrapper__...">
+        document.querySelectorAll('span, td, div, p').forEach(el => {
+            if (el.childElementCount === 0) collect(el);
+        });
+        // 2) awaryjnie: elementy z kilkoma dziećmi (tekst podzielony np. na <b>)
         if (!found.length) {
-            // awaryjnie (gdyby komentarze nie były w tabeli)
             const panel = document.getElementById(PANEL_ID);
-            document.querySelectorAll('span').forEach(el => { if (!panel || !panel.contains(el)) collect(el); });
+            document.querySelectorAll('span, td, div, p').forEach(el => {
+                if (el.childElementCount > 0 && el.childElementCount <= 3 && !(panel && panel.contains(el))) {
+                    const raw = el.textContent;
+                    if (raw.length <= 600 && raw.includes('spent time')) {
+                        // bierzemy tylko najgłębszy pasujący element
+                        const e = parse(raw.replace(/\s+/g, ' ').trim());
+                        if (e && ![...el.children].some(c => c.textContent.includes('spent time') && parse(c.textContent.replace(/\s+/g, ' ').trim()))) found.push(e);
+                    }
+                }
+            });
         }
         // duplikaty usuwamy tylko dla timerów (ręczne wpisy nie mają godziny końca,
         // więc dwa takie same wpisy to dwa osobne wpisy)
@@ -402,15 +414,22 @@
         timer = setTimeout(() => { build(); render(); }, 900);
     }
 
-    // czy zmiana dotyczy tabeli (komentarzy), a nie np. menu, zegara czy naszego okienka?
+    // czy zmiana dotyczy komentarzy (a nie np. menu, zegara czy naszego okienka)?
+    const HINT = /spent time|You see \d+ of \d+ comments/;
     function relevant(muts) {
         const panel = document.getElementById(PANEL_ID);
         for (const m of muts) {
             const t = m.target.nodeType === 1 ? m.target : m.target.parentElement;
             if (!t || (panel && panel.contains(t))) continue;
-            if (t.closest('table')) return true;
+            if (m.type === 'characterData') {
+                if (HINT.test(m.target.data)) return true;
+                continue;
+            }
             for (const n of m.addedNodes) {
-                if (n.nodeType === 1 && (n.matches('table, tbody, tr, td') || n.querySelector('table, tr'))) return true;
+                if (n.nodeType === 1 ? HINT.test(n.textContent) : HINT.test(n.nodeValue || '')) return true;
+            }
+            for (const n of m.removedNodes) {
+                if (n.nodeType === 1 && HINT.test(n.textContent)) return true;
             }
         }
         return false;
