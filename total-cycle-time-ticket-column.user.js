@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.2.0
-// @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem i przycisk Yesterday
+// @version      2.3.0
+// @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
 // @grant        none
@@ -565,6 +565,42 @@
             (pending ? '<div style="color:#777">Sprawdzanie… pozostało: ' + pending + '</div>' : '');
     }
 
+    // ---------- kolumna "Checked?" (checkboxy zapamiętywane lokalnie) ----------
+    const CHECKED_KEY = 'tm_total_cycle_checked';
+    const CHECKED_TTL_MS = 90 * 24 * 60 * 60 * 1000; // wpisy starsze niż 90 dni są czyszczone
+
+    function loadChecked() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(CHECKED_KEY) || '{}');
+            const now = Date.now();
+            const out = {};
+            for (const k of Object.keys(raw)) {
+                if (now - raw[k] < CHECKED_TTL_MS) out[k] = raw[k];
+            }
+            return out;
+        } catch (e) { return {}; }
+    }
+
+    function setChecked(key, on) {
+        // odczyt tuż przed zapisem – nie nadpisujemy zmian z innej karty
+        const all = loadChecked();
+        if (on) all[key] = Date.now(); else delete all[key];
+        try { localStorage.setItem(CHECKED_KEY, JSON.stringify(all)); } catch (e) { /* ignore */ }
+    }
+
+    // wstawia checkbox jako PIERWSZĄ komórkę wiersza (przed "#")
+    function insertCheckbox(row, key, checkedMap) {
+        const td = makeCell('td');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.title = 'Checked – zapamiętywane lokalnie w tej przeglądarce';
+        cb.style.cursor = 'pointer';
+        cb.checked = !!checkedMap[key];
+        cb.addEventListener('change', () => setChecked(key, cb.checked));
+        td.appendChild(cb);
+        row.insertBefore(td, row.cells[0]);
+    }
+
     function process() {
         const target = findTarget();
         if (!target) return;
@@ -575,6 +611,7 @@
         // indeksy kolumn liczone PRZED wstawieniem kolumny Ticket
         const columnsCheck = getColumnsCheck(headerRow);
 
+        const checkedMap = loadChecked();
         const jobs = [];
         let mismatches = 0;
 
@@ -586,6 +623,12 @@
                 th.removeAttribute('title');
                 th.style.textAlign = 'center';
                 row.insertBefore(th, row.cells[idx]);
+
+                // nagłówek kolumny Checked? – pierwsza kolumna, przed "#"
+                const ch = th.cloneNode(false);
+                ch.textContent = 'Checked?';
+                ch.title = 'Zaznaczenia zapamiętywane lokalnie';
+                row.insertBefore(ch, row.cells[0]);
                 continue;
             }
 
@@ -596,6 +639,7 @@
                 const byColumns = columnsCheck(row); // true / false / null (brak kolumn)
                 const td = makeCell('td');
                 row.insertBefore(td, aufCell);
+                insertCheckbox(row, m[1] + '/' + m[2], checkedMap);
 
                 const markTicket = (title, rmaId) => {
                     td.innerHTML = '';
@@ -653,9 +697,11 @@
 
             // wiersz podsumowania (TOTAL) – poszerz pierwszy colspan, żeby nie rozjechać tabeli
             const spanCell = Array.from(row.cells).find(c => c.colSpan > 1);
+            // +2: kolumna Ticket i kolumna Checked?
             if (spanCell) {
-                spanCell.colSpan = spanCell.colSpan + 1;
+                spanCell.colSpan = spanCell.colSpan + 2;
             } else if (row.cells.length) {
+                row.appendChild(document.createElement('td'));
                 row.appendChild(document.createElement('td'));
             }
         }
