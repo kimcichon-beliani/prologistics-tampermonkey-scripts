@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.5.0
+// @version      2.6.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -22,7 +22,7 @@
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
   const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
-  const PANEL_VERSION = '2.5.0';
+  const PANEL_VERSION = '2.6.0';
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -163,6 +163,16 @@
     'Wayfair UK': 'Beliani DE',
   };
 
+  // Dodatkowy filtr "Shipping company" (lista #shipping_company) dla wybranych partnerów.
+  // Wartość = dokładny tekst opcji. Trademax SE ma ten sam Source Seller dla obu typów zamówień,
+  // więc rozróżnia je dopiero Shipping company: OnDemand -> "Trademax", Dropship -> "Trademax Dropshipping".
+  const SHIPPING_COMPANY = {
+    'Trademax Dropship SE': ['Trademax Dropshipping'],
+    'Trademax OnDemand SE': ['Trademax'],
+  };
+  // Opcje, którymi zarządza skrypt – przy wyborze innego partnera są zdejmowane (resztę zaznaczeń nie ruszamy)
+  const SHIPPING_MANAGED = [...new Set(Object.values(SHIPPING_COMPANY).flat())].map((n) => n.replace(/\s+/g, ' ').trim().toLowerCase());
+
   // Sellerzy, z których NIE korzystamy (wartości `value` z listy Seller) – zostaną pominięci
   const BLOCKED_SELLERS = [
     'BCE',
@@ -228,6 +238,27 @@
       '✔ seller: ' + Array.from(sellerValues).join(', '),
       '✔ source seller: ' + okSourceOpts.map((o) => o.textContent.trim()).join(', '),
     ];
+
+    // 3) Shipping company (tylko partnerzy z mapy SHIPPING_COMPANY, np. Trademax)
+    const shipSel = document.getElementById('shipping_company');
+    if (shipSel) {
+      // zdejmij tylko opcje zarządzane przez skrypt (np. po wcześniejszym wyborze Trademax)
+      Array.from(shipSel.options).forEach((o) => { if (SHIPPING_MANAGED.includes(norm(o.textContent))) o.selected = false; });
+      const wantedShip = (SHIPPING_COMPANY[partner] || []).map(norm);
+      if (wantedShip.length) {
+        const shipOpts = Array.from(shipSel.options).filter((o) => wantedShip.includes(norm(o.textContent)));
+        if (shipOpts.length) {
+          Array.from(shipSel.options).forEach((o) => { if (o.value === '') o.selected = false; }); // odznacz "All"
+          shipOpts.forEach((o) => { o.selected = true; });
+          fireChange(shipSel);
+          lines.push('✔ shipping company: ' + shipOpts.map((o) => o.textContent.trim()).join(', '));
+        } else {
+          lines.push('⚠ shipping company not found: ' + (SHIPPING_COMPANY[partner] || []).join(', '));
+        }
+      } else if (!Array.from(shipSel.options).some((o) => o.selected) && shipSel.options[0]) {
+        shipSel.options[0].selected = true; // nic nie zostało zaznaczone -> "All"
+      }
+    }
     if (skipped.length) lines.push('⚠ skipped: ' + skipped.join('; '));
     setStatus(lines.join('\n'));
   }
@@ -235,7 +266,8 @@
   function clearAll(setStatus) {
     const sellerSel = document.getElementById('seller');
     const sourceSel = document.getElementById('source_seller');
-    [sellerSel, sourceSel].forEach((sel) => {
+    const shipSel = document.getElementById('shipping_company');
+    [sellerSel, sourceSel, shipSel].forEach((sel) => {
       if (!sel) return;
       deselectAll(sel);
       if (sel.options[0]) sel.options[0].selected = true; // "All"
