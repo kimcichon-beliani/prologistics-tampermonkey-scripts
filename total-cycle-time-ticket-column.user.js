@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.3.0
+// @version      2.4.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -276,6 +276,17 @@
     let selected = null;
     const setStatus = (t) => { status.textContent = t; };
 
+    // Zapamiętany stan listy (przeżywa przeładowanie strony po Search): wybrany partner + pozycja przewinięcia
+    const STATE_KEY = 'tm_partner_panel_state';
+    const saveState = () => {
+      try { localStorage.setItem(STATE_KEY, JSON.stringify({ selected, scrollTop: list.scrollTop })); } catch (err) { /* ignore */ }
+    };
+    let scrollTimer = null;
+    list.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(saveState, 150);
+    });
+
     const highlight = (name) => {
       if (selected && items[selected]) {
         items[selected].style.background = '';
@@ -296,6 +307,7 @@
       row.addEventListener('mouseleave', () => { if (name !== selected) row.style.background = ''; });
       row.addEventListener('click', () => {
         highlight(name);
+        saveState();
         applyPartner(name, setStatus);
       });
       items[name] = row;
@@ -313,7 +325,7 @@
     clear.type = 'button';
     clear.textContent = 'Clear (All)';
     clear.style.cssText = `background:${BRAND};color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer`;
-    clear.addEventListener('click', () => { highlight(null); search.value = ''; clearAll(setStatus); });
+    clear.addEventListener('click', () => { highlight(null); search.value = ''; saveState(); clearAll(setStatus); });
 
     // Przycisk Search = kopia przycisku "Filter" ze strony (klika oryginał, więc wysyła się name="filter")
     const searchBtn = document.createElement('button');
@@ -323,6 +335,7 @@
     searchBtn.addEventListener('click', () => {
       const filterBtn = document.querySelector('input[type="submit"][name="filter"]');
       if (!filterBtn) return setStatus('✖ "Filter" button not found on the page');
+      saveState(); // zapamiętaj wybranego partnera i miejsce na liście przed przeładowaniem strony
       filterBtn.click();
     });
 
@@ -401,6 +414,20 @@
       const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
       if (saved && isFinite(saved.left) && isFinite(saved.top)) setPos(saved.left, saved.top);
     } catch (err) { /* ignore */ }
+
+    // przywróć wybranego partnera (podświetlenie) i pozycję na liście
+    try {
+      const st = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');
+      if (st) {
+        if (st.selected && items[st.selected]) {
+          highlight(st.selected);
+          setStatus('Last selected: ' + st.selected);
+        }
+        list.scrollTop = Number(st.scrollTop) || 0;
+        // jeśli układ strony jeszcze się ustawia, ponów po chwili
+        setTimeout(() => { list.scrollTop = Number(st.scrollTop) || 0; }, 300);
+      }
+    } catch (err) { /* ignore */ }
   }
 
   // Usuwa panel ze starych wersji / zdublowanego skryptu (stare id), żeby nie zasłaniał nowego
@@ -412,7 +439,7 @@
   buildPanel();
   setTimeout(removeLegacyPanels, 1000);
   setTimeout(removeLegacyPanels, 3000);
-  console.log(LOG, 'total-cycle-time-partner-filter v1.5.1 loaded');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.6.0 loaded');
 })();
 
 // ═══════════════════════════ 2) TICKET COLUMN ═══════════════════════════
