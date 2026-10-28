@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.4.0
+// @version      2.5.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -22,6 +22,7 @@
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
   const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
+  const PANEL_VERSION = '2.5.0';
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -247,10 +248,16 @@
   // UI
   // ───────────────────────────────────────────────────────────────
   function buildPanel() {
-    if (document.getElementById(PANEL_ID)) return;
+    // Starsza kopia skryptu (to samo id panelu) mogła zbudować panel wcześniej – wtedy go podmieniamy
+    const existing = document.getElementById(PANEL_ID);
+    if (existing) {
+      if (existing.dataset.tmVersion === PANEL_VERSION) return;
+      existing.remove();
+    }
 
     const box = document.createElement('div');
     box.id = PANEL_ID;
+    box.dataset.tmVersion = PANEL_VERSION;
     box.style.cssText = [
       'position:fixed', 'top:85px', 'right:12px', 'z-index:99999', 'width:270px',
       'background:#fff', `border:2px solid ${BRAND}`, 'border-radius:6px',
@@ -258,7 +265,11 @@
     ].join(';');
 
     const title = document.createElement('div');
-    title.textContent = 'Partner filter';
+    title.textContent = 'Partner filter ';
+    const ver = document.createElement('span');
+    ver.textContent = 'v' + PANEL_VERSION;
+    ver.style.cssText = 'font-weight:normal;font-size:10px;color:#999';
+    title.appendChild(ver);
     title.style.cssText = `font-weight:bold;color:${BRAND};margin-bottom:6px;cursor:move`;
 
     const body = document.createElement('div');
@@ -281,6 +292,8 @@
     const saveState = () => {
       try { localStorage.setItem(STATE_KEY, JSON.stringify({ selected, scrollTop: list.scrollTop })); } catch (err) { /* ignore */ }
     };
+    window.addEventListener('beforeunload', saveState);
+    window.addEventListener('pagehide', saveState);
     let scrollTimer = null;
     list.addEventListener('scroll', () => {
       clearTimeout(scrollTimer);
@@ -418,6 +431,7 @@
     // przywróć wybranego partnera (podświetlenie) i pozycję na liście
     try {
       const st = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');
+      console.log(LOG, 'Partner panel: zapamiętany stan', st);
       if (st) {
         if (st.selected && items[st.selected]) {
           highlight(st.selected);
@@ -439,7 +453,7 @@
   buildPanel();
   setTimeout(removeLegacyPanels, 1000);
   setTimeout(removeLegacyPanels, 3000);
-  console.log(LOG, 'total-cycle-time-partner-filter v1.6.0 loaded');
+  console.log(LOG, 'total-cycle-time-partner-filter v1.6.1 loaded');
 })();
 
 // ═══════════════════════════ 2) TICKET COLUMN ═══════════════════════════
