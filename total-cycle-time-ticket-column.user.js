@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.6.0
+// @version      2.7.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -22,7 +22,7 @@
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
   const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
-  const PANEL_VERSION = '2.6.0';
+  const PANEL_VERSION = '2.7.0';
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -56,6 +56,7 @@
     'Brico Depot PT': ['Brico Depot PT'],
     'Bricomarché FR': ['Bricomarche FR'],
     'BUT FR': ['BUT'],
+    'BV grupa SIA': ['BV grupa SIA'],
     'Carrefour ES': ['Carrefour ES'],
     'Carrefour FR': ['Carrefour FR'],
     'Castorama FR': ['Castorama FR'],
@@ -133,6 +134,7 @@
     'Vente Unique BE': ['Vente Unique Belgium'],
     'Vente Unique CH': ['Vente Unique CH'],
     'Vente Unique DE': ['VENTEUNIQUE_DEU'],
+    'Vente Unique DK': ['Vente Unique DK', 'Vente Unique Denmark', 'Vente-Unique DK'],
     'Vente Unique ES': ['Vente-Unique ES'],
     'Vente Unique FR': ['Vente Unique'],
     'Vente Unique IT': ['Vente Unique IT'],
@@ -152,15 +154,17 @@
     'XXXLutz CZ': ['XXXLutz CZ'],
     'XXXLutz DE': ['XXXLutz'],
     'XXXLutz HR': ['XXXLutz HR'],
+    'XXXLutz HU': ['XXXLutz HU'],
     'XXXLutz RO': ['XXXLutz RO'],
     'XXXLutz SE': ['XXXLutz SE'],
     'XXXLutz SI': ['XXXLutz SI'],
   };
 
   // Wyjątki: partner, który wysyłamy spod innego sellera niż wynika z klasy Source Sellera
-  // (wartość `value` z listy Seller). Wayfair UK wysyłamy spod sellera DE.
+  // (wartość `value` z listy Seller). Wayfair UK i BV grupa SIA wysyłamy spod sellera DE.
   const SELLER_OVERRIDE = {
     'Wayfair UK': 'Beliani DE',
+    'BV grupa SIA': 'Beliani DE',
   };
 
   // Dodatkowy filtr "Shipping company" (lista #shipping_company) dla wybranych partnerów.
