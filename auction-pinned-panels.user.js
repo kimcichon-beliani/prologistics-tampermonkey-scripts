@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Auction Pinned Panels (Customer / Articles / Payments)
 // @namespace    kimrioter
-// @version      1.5.2
+// @version      1.5.3
 // @description  Przypięte panele na auction.php: dane klienta (Shipping / Billing), artykuły z tabeli Articles oraz kwoty – cena, dostawa, COD, bonusy, ostrzeżenie przy cenie 0 / zamówieniu z ticketu. Wygląd jak w skrypcie "RMA Auftrag # Copy + Pinned Panels".
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -865,7 +865,31 @@
         return isNaN(v) ? null : v;
     }
 
-    const CURRENCY_RE = /(€|EUR|CHF|PLN|zł|SEK|NOK|DKK|GBP|£|\$)/;
+    // Waluty jako osobne słowa (bez dopasowań w środku innych wyrazów)
+    const CURRENCY_RE = /(?<![A-Za-zÀ-ž])(EUR|CHF|PLN|SEK|NOK|DKK|GBP|HUF|CZK|RON|BGN|USD|Ft|Kč|zł|lei|€|£|\$)(?![A-Za-zÀ-ž])/;
+
+    // Tekst wiersza bez zawartości <select>/<option> – listy kont
+    // (np. "Nordea Beliani SEK") nie mogą wpływać na wykrytą walutę
+    function rowTextNoSelects(row) {
+        const clone = row.cloneNode(true);
+        clone.querySelectorAll('select, option, script, style').forEach(el => el.remove());
+        return normalize(clone.textContent);
+    }
+
+    // Waluta z wiersza "Auftrag value - Total of Payments" / "Total of Payments"
+    function currencyFromPaymentsSummary() {
+        const rows = Array.from(document.querySelectorAll('tr'));
+        const patterns = [/auftrag\s*value/i, /total\s*of\s*payments/i];
+        for (const re of patterns) {
+            for (const row of rows) {
+                const text = rowTextNoSelects(row);
+                if (!re.test(text) || text.length > 200) continue;
+                const cm = text.match(CURRENCY_RE);
+                if (cm) return cm[1];
+            }
+        }
+        return '';
+    }
 
     function moneyInCell(cell) {
         if (!cell) return null;
@@ -905,6 +929,9 @@
             out.source = 'formula';
         }
 
+        // --- waluta: najpierw z podsumowania płatności (najpewniejsze źródło) ---
+        out.currency = currencyFromPaymentsSummary();
+
         // --- tabela podsumowania: waluta, bonusy, wartości zapasowe ---
         const seen = new Set();
 
@@ -923,7 +950,7 @@
             if (amount === null) return;
 
             if (!out.currency) {
-                const cm = normalize(row.textContent).match(CURRENCY_RE);
+                const cm = rowTextNoSelects(row).match(CURRENCY_RE);
                 if (cm) out.currency = cm[1];
             }
 
