@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.7.0
+// @version      2.7.1
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -22,7 +22,7 @@
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
   const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
-  const PANEL_VERSION = '2.7.0';
+  const PANEL_VERSION = '2.7.1';
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -140,6 +140,7 @@
     'Vente Unique IT': ['Vente Unique IT'],
     'Vente Unique LU': ['Vente Unique Luxembourg'],
     'Vente Unique NL': ['Vente-Unique NL'],
+    'Vente Unique NO': ['Vente Unique NO', 'Vente Unique Norway', 'Vente-Unique NO'],
     'Vente Unique PL': ['Vente Unique PL'],
     'Vente Unique PT': ['Vente-Unique PT'],
     'Vente Unique SE': ['Vente Unique SE'],
