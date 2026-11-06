@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Total Cycle Time – partner filter + ticket column
 // @namespace    kimrioter
-// @version      2.7.1
+// @version      2.8.0
 // @description  total_cycle_time.php: panel szybkiego wyboru partnera (Seller + Source Seller), kolumna Ticket (✔️), podsumowanie Orders / Orders from tickets pod wykresem, przyciski dat (Yesterday, Last Weekend + Mon) i kolumna Checked?
 // @author       kimrioter
 // @match        https://www.prologistics.info/total_cycle_time.php*
@@ -22,7 +22,7 @@
   const LOG = '[TM script by kimrioter]';
   const BRAND = '#750000';
   const PANEL_ID = 'tm-partner-filter-v2'; // nowe id – stare wersje używały 'tm-partner-filter'
-  const PANEL_VERSION = '2.7.1';
+  const PANEL_VERSION = '2.8.0';
 
   // ───────────────────────────────────────────────────────────────
   // PARTNER -> nazwy w liście "Source Seller" (dokładny tekst opcji).
@@ -75,6 +75,7 @@
     'eMAG HU': ['EMAG HU', 'EMAG HU COD'],
     'eMAG RO': ['eMAG RO'],
     'Empik PL': ['Empik'],
+    'Fashion Days RO': ['Fashion Days RO', 'FashionDays RO', 'Fashion Days Romania', 'FashionDays Romania'],
     'Furniture1 HU': ['Furniture1 HU'],
     'Furniture1 LT': ['Furniture1'],
     'Galaxus CH': ['Galaxus (Beliani) CH'],
@@ -159,6 +160,7 @@
     'XXXLutz RO': ['XXXLutz RO'],
     'XXXLutz SE': ['XXXLutz SE'],
     'XXXLutz SI': ['XXXLutz SI'],
+    'XXXLutz SK': ['XXXLutz SK'],
   };
 
   // Wyjątki: partner, który wysyłamy spod innego sellera niż wynika z klasy Source Sellera
