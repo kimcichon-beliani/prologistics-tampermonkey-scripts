@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon SC – odwiedzone zamówienia na zielono
 // @namespace    beliani-kim
-// @version      1.0
+// @version      1.1
 // @description  Zapamiętuje lokalnie, w które zamówienia się weszło, i koloruje ich numery na zielono na liście zamówień.
 // @author       kimrioter
 // @updateURL    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts/raw/main/amazon-visited-orders.user.js
@@ -115,9 +115,6 @@
         visited = {};
         save();
         paint();
-    });
-    GM_registerMenuCommand('Pokaż liczbę zapamiętanych', () => {
-        alert('Zapamiętanych zamówień: ' + Object.keys(visited).length);
     });
 
     checkUrl();
