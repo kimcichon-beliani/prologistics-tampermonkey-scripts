@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – International VAT (Change order) pod Customer Details
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.3.1
+// @version      1.4.0
 // @description  Na auction.php pod tabelą "Customer Details" wstawia sekcję International VAT z "Change order" (Verify VAT, Goods should be sent without VAT, Make 0% VAT Invoice). Po "Dalej" sam przechodzi krok 2 i klika "Change order" w kroku 3.
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -155,33 +155,34 @@
 
         stateSel.addEventListener('change', () => {
             const doc = frameDoc();
-            const src = doc && doc.getElementById('state_invoice');
-            if (!src) {
+            if (!doc || !getStateSelects(doc).length) {
                 stateInfo.textContent = 'Change order nie jest załadowany – kliknij „Załaduj”.';
                 return;
             }
-            src.value = stateSel.value;
-            src.dispatchEvent(new Event('change', { bubbles: true }));
+            const missing = applyStateToFrame(doc, stateSel.value);
             stateDirty = true;
-            stateInfo.textContent = 'Zmieniono – kliknij „Zapisz State”.';
-            stateInfo.style.color = BRAND;
+            stateInfo.textContent = missing.length
+                ? 'Uwaga: brak tej opcji w polu ' + missing.join(', ') + '!'
+                : 'Zmieniono (billing + shipping) – kliknij „Zapisz State”.';
+            stateInfo.style.color = missing.length ? '#b00020' : BRAND;
         });
 
         stateSave.addEventListener('click', () => {
             const doc = frameDoc();
-            const src = doc && doc.getElementById('state_invoice');
             const next = doc && doc.getElementById('submit-button');
-            if (!src || !next) {
+            if (!doc || !getStateSelects(doc).length || !next) {
                 stateInfo.textContent = 'Change order nie jest w kroku 1 – kliknij „Załaduj ponownie”.';
                 return;
             }
-            if (src.value !== stateSel.value) {
-                src.value = stateSel.value;
-                src.dispatchEvent(new Event('change', { bubbles: true }));
+            const missing = applyStateToFrame(doc, stateSel.value);
+            if (missing.length) {
+                stateInfo.textContent = 'Nie zapisuję – w polu ' + missing.join(', ') + ' nie ma opcji „' + stateSel.value + '”.';
+                stateInfo.style.color = '#b00020';
+                return;
             }
             stateSave.disabled = true;
             stateInfo.textContent = 'Zapisuję przez Change order…';
-            console.log(LOG, 'Zapis State:', stateSel.value);
+            console.log(LOG, 'Zapis State (billing + shipping):', stateSel.value);
             // zapamiętujemy, żeby po przeładowaniu auftragu od razu pokazać nowy State
             try { sessionStorage.setItem(STATE_KEY, JSON.stringify({ value: stateSel.value, t: Date.now() })); } catch (e) { /* brak storage */ }
             next.click(); // "Dalej" – dalej kroki 2 i 3 przechodzą automatycznie
@@ -202,6 +203,27 @@
         console.warn(LOG, 'Nie znalazłam wiersza International VAT ani Country – State nie zostanie dodany.');
     }
 
+    // Pola State w kroku 1 Change order: billing (#state_invoice) i shipping (#state_shipping)
+    function getStateSelects(doc) {
+        return [
+            ['billing', doc.getElementById('state_invoice') || doc.querySelector('select[name="personal[state_invoice]"]')],
+            ['shipping', doc.getElementById('state_shipping') || doc.querySelector('select[name="personal[state_shipping]"]')]
+        ].filter(([, el]) => el);
+    }
+
+    // Ustawia ten sam State w billingu i shippingu; zwraca pola, w których nie ma takiej opcji
+    function applyStateToFrame(doc, value) {
+        const missing = [];
+        getStateSelects(doc).forEach(([label, el]) => {
+            if (!Array.from(el.options).some(o => o.value === value)) { missing.push(label); return; }
+            if (el.value !== value) {
+                el.value = value;
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+        return missing;
+    }
+
     // Kopiuje listę opcji i wybraną wartość z #state_invoice (krok 1) do selecta na auftragu
     function setStateCurrent(value) {
         if (!stateCurrent) return;
@@ -213,7 +235,10 @@
         if (!stateSel) return;
         const src = doc.getElementById('state_invoice');
         if (!src) return;
-        if (!stateDirty) setStateCurrent(src.value); // aktualna wartość z systemu
+        const ship = getStateSelects(doc).find(([l]) => l === 'shipping');
+        const shipVal = ship ? ship[1].value : src.value;
+        // aktualna wartość z systemu; gdy shipping jest inny – pokazujemy oba
+        if (!stateDirty) setStateCurrent(shipVal === src.value ? src.value : src.value + '  |  shipping: ' + (shipVal || '—'));
 
         const sig = Array.from(src.options).map(o => o.value).join('|');
         if (sig !== stateSig) {
@@ -229,10 +254,13 @@
         stateSave.disabled = false;
         if (!stateDirty) {
             if (saved) {
-                const ok = src.value === saved.value;
+                const ok = src.value === saved.value && shipVal === saved.value;
                 stateInfo.textContent = ok ? 'Zapisano ✓' : 'Uwaga: w Change order jest inny State niż zapisany!';
                 stateInfo.style.color = ok ? '#1b7a1b' : '#b00020';
                 saved = null;
+            } else if (shipVal !== src.value) {
+                stateInfo.textContent = 'Billing i shipping mają różny State – wybierz i zapisz, żeby ujednolicić.';
+                stateInfo.style.color = '#b00020';
             } else {
                 stateInfo.textContent = src.value ? '' : 'Brak State w zamówieniu.';
                 stateInfo.style.color = '#777';
