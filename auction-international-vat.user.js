@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – International VAT (Change order) pod Customer Details
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.3.0
+// @version      1.3.1
 // @description  Na auction.php pod tabelą "Customer Details" wstawia sekcję International VAT z "Change order" (Verify VAT, Goods should be sent without VAT, Make 0% VAT Invoice). Po "Dalej" sam przechodzi krok 2 i klika "Change order" w kroku 3.
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -109,26 +109,41 @@
     let stateSig = '';      // podpis listy opcji – przebudowa tylko gdy się zmieni
     let stateDirty = false; // zmieniono State na auftragu, jeszcze nie zapisano
 
-    const countryRow = Array.from(cdTable.querySelectorAll('tr')).find(tr => {
-        const b = tr.querySelector('td:first-child > b');
-        return b && b.textContent.trim().toLowerCase() === 'country';
-    });
+    let saved = null;        // State zapisany przed przeładowaniem (do potwierdzenia)
+    let stateCurrent = null; // tekst z aktualnym State (jak w innych wierszach: wartość nad polem)
 
-    if (countryRow) {
+    // Numer auftragu – klucz do zapamiętania zapisanego State na czas przeładowania
+    const auctionNo = (new URLSearchParams(location.search).get('number')) ||
+        ((document.querySelector('input[name="number"]') || {}).value) || '';
+    const STATE_KEY = 'tmkr-state-saved-' + auctionNo + '-' + (new URLSearchParams(location.search).get('txnid') || '');
+
+    // Wiersz State wstawiamy pod International VAT (zapasowo pod Country)
+    const findRowByLabel = label => Array.from(cdTable.querySelectorAll('tr')).find(tr => {
+        const b = tr.querySelector('td:first-child > b');
+        return b && b.textContent.trim().toLowerCase() === label;
+    });
+    const anchorRow = document.getElementById('international_vat_row') ||
+        findRowByLabel('international vat') || findRowByLabel('country');
+
+    if (anchorRow) {
         const stateRow = document.createElement('tr');
         stateRow.id = 'tmkr-state-row';
         stateRow.innerHTML = `
             <td><b>State</b></td>
-            <td><select class="tmkr-state" style="max-width: 100%;"><option value="">— kliknij, aby pobrać z Change order —</option></select></td>
+            <td>
+                <span class="tmkr-state-current"></span><br>
+                <select class="tmkr-state" style="max-width: 100%;"><option value="">— kliknij, aby pobrać z Change order —</option></select>
+            </td>
             <td>
                 <button type="button" class="tmkr-state-save" disabled>Zapisz State</button>
                 <div class="tmkr-state-info" style="font-size: 11px; color: #777;"></div>
             </td>`;
-        countryRow.insertAdjacentElement('afterend', stateRow);
+        anchorRow.insertAdjacentElement('afterend', stateRow);
 
         stateSel = stateRow.querySelector('.tmkr-state');
         stateSave = stateRow.querySelector('.tmkr-state-save');
         stateInfo = stateRow.querySelector('.tmkr-state-info');
+        stateCurrent = stateRow.querySelector('.tmkr-state-current');
 
         // Pierwsze kliknięcie w select ładuje Change order
         stateSel.addEventListener('mousedown', e => {
@@ -167,17 +182,38 @@
             stateSave.disabled = true;
             stateInfo.textContent = 'Zapisuję przez Change order…';
             console.log(LOG, 'Zapis State:', stateSel.value);
+            // zapamiętujemy, żeby po przeładowaniu auftragu od razu pokazać nowy State
+            try { sessionStorage.setItem(STATE_KEY, JSON.stringify({ value: stateSel.value, t: Date.now() })); } catch (e) { /* brak storage */ }
             next.click(); // "Dalej" – dalej kroki 2 i 3 przechodzą automatycznie
         });
+
+        // Po przeładowaniu po zapisie: od razu pokazujemy zapisany State
+        // i w tle ładujemy Change order, żeby potwierdzić wartość z systemu
+        saved = null;
+        try { saved = JSON.parse(sessionStorage.getItem(STATE_KEY) || 'null'); } catch (e) { saved = null; }
+        if (saved && Date.now() - saved.t < 10 * 60 * 1000) {
+            setStateCurrent(saved.value);
+            stateInfo.textContent = 'Zapisano – sprawdzam w Change order…';
+            stateInfo.style.color = '#1b7a1b';
+            setTimeout(load, 0); // load() zdefiniowane niżej
+        }
+        try { sessionStorage.removeItem(STATE_KEY); } catch (e) { /* brak storage */ }
     } else {
-        console.warn(LOG, 'Nie znalazłam wiersza Country – State nie zostanie dodany.');
+        console.warn(LOG, 'Nie znalazłam wiersza International VAT ani Country – State nie zostanie dodany.');
     }
 
     // Kopiuje listę opcji i wybraną wartość z #state_invoice (krok 1) do selecta na auftragu
+    function setStateCurrent(value) {
+        if (!stateCurrent) return;
+        stateCurrent.textContent = value || '—';
+        stateCurrent.style.fontWeight = value ? 'bold' : 'normal';
+    }
+
     function syncStateFromFrame(doc) {
         if (!stateSel) return;
         const src = doc.getElementById('state_invoice');
         if (!src) return;
+        if (!stateDirty) setStateCurrent(src.value); // aktualna wartość z systemu
 
         const sig = Array.from(src.options).map(o => o.value).join('|');
         if (sig !== stateSig) {
@@ -192,8 +228,15 @@
         if (!stateDirty && document.activeElement !== stateSel) stateSel.value = src.value;
         stateSave.disabled = false;
         if (!stateDirty) {
-            stateInfo.textContent = src.value ? '' : 'Brak State w zamówieniu.';
-            stateInfo.style.color = '#777';
+            if (saved) {
+                const ok = src.value === saved.value;
+                stateInfo.textContent = ok ? 'Zapisano ✓' : 'Uwaga: w Change order jest inny State niż zapisany!';
+                stateInfo.style.color = ok ? '#1b7a1b' : '#b00020';
+                saved = null;
+            } else {
+                stateInfo.textContent = src.value ? '' : 'Brak State w zamówieniu.';
+                stateInfo.style.color = '#777';
+            }
         }
     }
 
