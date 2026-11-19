@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – International VAT (Change order) pod Customer Details
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.2.0
+// @version      1.3.0
 // @description  Na auction.php pod tabelą "Customer Details" wstawia sekcję International VAT z "Change order" (Verify VAT, Goods should be sent without VAT, Make 0% VAT Invoice). Po "Dalej" sam przechodzi krok 2 i klika "Change order" w kroku 3.
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -101,6 +101,101 @@
     let stuckTimer = null;
     let pendingConfirm = null;   // { yes, no } – przyciski alertify w iframe
     let confirmPoll = null;      // sprawdzanie popupu w kroku 3
+
+    // ---------- State w Customer Details (pod wierszem Country) ----------
+    // Wartości i lista opcji pochodzą z #state_invoice w kroku 1 Change order,
+    // zmiana jest zapisywana przez ten sam formularz ("Dalej" → kroki 2 i 3 automatycznie).
+    let stateSel = null, stateSave = null, stateInfo = null;
+    let stateSig = '';      // podpis listy opcji – przebudowa tylko gdy się zmieni
+    let stateDirty = false; // zmieniono State na auftragu, jeszcze nie zapisano
+
+    const countryRow = Array.from(cdTable.querySelectorAll('tr')).find(tr => {
+        const b = tr.querySelector('td:first-child > b');
+        return b && b.textContent.trim().toLowerCase() === 'country';
+    });
+
+    if (countryRow) {
+        const stateRow = document.createElement('tr');
+        stateRow.id = 'tmkr-state-row';
+        stateRow.innerHTML = `
+            <td><b>State</b></td>
+            <td><select class="tmkr-state" style="max-width: 100%;"><option value="">— kliknij, aby pobrać z Change order —</option></select></td>
+            <td>
+                <button type="button" class="tmkr-state-save" disabled>Zapisz State</button>
+                <div class="tmkr-state-info" style="font-size: 11px; color: #777;"></div>
+            </td>`;
+        countryRow.insertAdjacentElement('afterend', stateRow);
+
+        stateSel = stateRow.querySelector('.tmkr-state');
+        stateSave = stateRow.querySelector('.tmkr-state-save');
+        stateInfo = stateRow.querySelector('.tmkr-state-info');
+
+        // Pierwsze kliknięcie w select ładuje Change order
+        stateSel.addEventListener('mousedown', e => {
+            if (stateSig) return;
+            e.preventDefault();
+            stateInfo.textContent = 'Ładuję Change order…';
+            load();
+        });
+
+        stateSel.addEventListener('change', () => {
+            const doc = frameDoc();
+            const src = doc && doc.getElementById('state_invoice');
+            if (!src) {
+                stateInfo.textContent = 'Change order nie jest załadowany – kliknij „Załaduj”.';
+                return;
+            }
+            src.value = stateSel.value;
+            src.dispatchEvent(new Event('change', { bubbles: true }));
+            stateDirty = true;
+            stateInfo.textContent = 'Zmieniono – kliknij „Zapisz State”.';
+            stateInfo.style.color = BRAND;
+        });
+
+        stateSave.addEventListener('click', () => {
+            const doc = frameDoc();
+            const src = doc && doc.getElementById('state_invoice');
+            const next = doc && doc.getElementById('submit-button');
+            if (!src || !next) {
+                stateInfo.textContent = 'Change order nie jest w kroku 1 – kliknij „Załaduj ponownie”.';
+                return;
+            }
+            if (src.value !== stateSel.value) {
+                src.value = stateSel.value;
+                src.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            stateSave.disabled = true;
+            stateInfo.textContent = 'Zapisuję przez Change order…';
+            console.log(LOG, 'Zapis State:', stateSel.value);
+            next.click(); // "Dalej" – dalej kroki 2 i 3 przechodzą automatycznie
+        });
+    } else {
+        console.warn(LOG, 'Nie znalazłam wiersza Country – State nie zostanie dodany.');
+    }
+
+    // Kopiuje listę opcji i wybraną wartość z #state_invoice (krok 1) do selecta na auftragu
+    function syncStateFromFrame(doc) {
+        if (!stateSel) return;
+        const src = doc.getElementById('state_invoice');
+        if (!src) return;
+
+        const sig = Array.from(src.options).map(o => o.value).join('|');
+        if (sig !== stateSig) {
+            const keep = stateDirty ? stateSel.value : null;
+            stateSig = sig;
+            stateSel.innerHTML = '';
+            Array.from(src.options).forEach(o => {
+                stateSel.add(new Option(o.textContent.trim() || '—', o.value));
+            });
+            if (keep !== null) stateSel.value = keep;
+        }
+        if (!stateDirty && document.activeElement !== stateSel) stateSel.value = src.value;
+        stateSave.disabled = false;
+        if (!stateDirty) {
+            stateInfo.textContent = src.value ? '' : 'Brak State w zamówieniu.';
+            stateInfo.style.color = '#777';
+        }
+    }
 
     function setStatus(text, kind) {
         statusEl.textContent = text;
@@ -449,7 +544,11 @@
         let t = null;
         frameObs = new iframe.contentWindow.MutationObserver(() => {
             clearTimeout(t);
-            t = setTimeout(() => { fitHeight(); checkForConfirm(); }, 100);
+            t = setTimeout(() => {
+                fitHeight();
+                checkForConfirm();
+                if (isolated) syncStateFromFrame(doc); // lista State może się zmienić np. po zmianie kraju
+            }, 100);
         });
         frameObs.observe(doc.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'class'] });
 
@@ -465,10 +564,13 @@
             isolated = true;
             prefillFromAuction(doc);
             guardSameAddress(doc);
+            stateDirty = false;
+            syncStateFromFrame(doc);
             setMode('vat');
             setStatus('Wybierz kraj, wpisz numer VAT → Verify VAT → przycisk VAT → „Dalej”. Kroki 2 i 3 skrypt przeklika sam.');
             console.log(LOG, 'Sekcja VAT załadowana, zachowane elementy:', kept);
         } else if (step === '2' && doc.getElementById('theform')) {
+            if (stateSave) stateSave.disabled = true;
             autoStep2(doc);
         } else if (step === '3' && doc.getElementById('change_button')) {
             autoStep3(doc);
