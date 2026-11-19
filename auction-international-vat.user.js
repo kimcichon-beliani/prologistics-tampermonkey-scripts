@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – International VAT (Change order) pod Customer Details
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.1.1
+// @version      1.2.0
 // @description  Na auction.php pod tabelą "Customer Details" wstawia sekcję International VAT z "Change order" (Verify VAT, Goods should be sent without VAT, Make 0% VAT Invoice). Po "Dalej" sam przechodzi krok 2 i klika "Change order" w kroku 3.
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -23,6 +23,10 @@
 
     // false = Change order ładuje się dopiero po kliknięciu "Załaduj"
     const AUTO_LOAD = false;
+
+    // true = popup "Total changed from ... Do you want to change the order?" w kroku 3
+    // klikany jest automatycznie na "Yes" (inne pytania, np. o custom shipping, pokazują się w panelu)
+    const AUTO_ACCEPT_TOTAL_CHANGE = true;
 
     // Elementy z kroku 1 Change order, które zostają widoczne
     const KEEP_IDS = [
@@ -96,6 +100,7 @@
     let frameObs = null;
     let stuckTimer = null;
     let pendingConfirm = null;   // { yes, no } – przyciski alertify w iframe
+    let confirmPoll = null;      // sprawdzanie popupu w kroku 3
 
     function setStatus(text, kind) {
         statusEl.textContent = text;
@@ -276,6 +281,7 @@
     // Zatrzymanie automatu – pokazujemy całą stronę, żeby było widać, co się stało
     function stopAuto(msg) {
         clearTimeout(stuckTimer);
+        clearInterval(confirmPoll);
         lastAutoStep = null;
         finalSubmitted = false;
         hideConfirm();
@@ -319,14 +325,36 @@
         return { yes, no, msg: msgMatch ? msgMatch[1] : box.textContent.replace(/\s+/g, ' ').trim() };
     }
 
+    // Okienko alertify z Change order:
+    // <div class="dialog"><div><p class="msg">Total changed from € X to € Y. ...</p><nav><button class="cancel">No</button><button class="ok">Yes</button></nav></div></div>
+    function findDialog(doc) {
+        for (const d of doc.querySelectorAll('.dialog')) {
+            const msg = d.querySelector('.msg');
+            const ok = d.querySelector('button.ok');
+            if (msg && ok && msg.textContent.trim() && !ok.dataset.tmkrSeen) {
+                return { yes: ok, no: d.querySelector('button.cancel'), msg: msg.textContent.replace(/\s+/g, ' ').trim() };
+            }
+        }
+        return findAlertifyConfirm(doc); // zapasowo – szukanie po tekście przycisków
+    }
+
     function checkForConfirm() {
         if (lastAutoStep !== '3' || pendingConfirm) return;
         const doc = frameDoc();
         if (!doc || !doc.body) return;
-        const c = findAlertifyConfirm(doc);
+        const c = findDialog(doc);
         if (!c) return;
         clearTimeout(stuckTimer);
         c.yes.dataset.tmkrSeen = '1';
+
+        // "Total changed from ... Do you want to change the order?" – akceptujemy automatycznie
+        if (AUTO_ACCEPT_TOTAL_CHANGE && /total changed/i.test(c.msg)) {
+            console.log(LOG, 'Automatycznie zaakceptowano:', c.msg);
+            setStatus('Krok 3 z 3 – akceptuję zmianę kwoty: ' + c.msg.replace(/\s*Do you want.*$/i, ''));
+            c.yes.click();
+            armStuckTimer('Po akceptacji zmiany kwoty nic się nie stało – sprawdź krok 3 poniżej.');
+            return;
+        }
         pendingConfirm = c;
         confirmMsg.textContent = c.msg;
         confirmBox.style.display = 'block';
@@ -351,6 +379,12 @@
     });
 
     // ---------- Kroki 2 i 3 – automatyczne przeklikanie ----------
+    function isOrderChangedPage(doc) {
+        const h1 = doc.querySelector('h1.header-title');
+        return (h1 && /order changed/i.test(h1.textContent)) ||
+            !!doc.querySelector('.order4_wrap a[href*="auction.php"]');
+    }
+
     function getStep(doc) {
         const s = doc.querySelector('form input[name="step"]');
         return s ? String(s.value) : null;
@@ -384,7 +418,9 @@
         setStatus('Krok 3 z 3 – klikam „Change order”…');
         setTimeout(() => {
             btn.click();
-            setTimeout(checkForConfirm, 200);
+            // popup może się pokazać z opóźnieniem – sprawdzamy co 250 ms aż do przejścia dalej
+            clearInterval(confirmPoll);
+            confirmPoll = setInterval(checkForConfirm, 250);
         }, CLICK_DELAY);
         armStuckTimer('„Change order” nie zadziałał – sprawdź krok 3 poniżej.');
     }
@@ -395,6 +431,7 @@
         if (doc && doc.location.href === 'about:blank') return;
 
         clearTimeout(stuckTimer);
+        clearInterval(confirmPoll);
         hideConfirm();
 
         if (!doc || !doc.body) {
@@ -435,6 +472,14 @@
             autoStep2(doc);
         } else if (step === '3' && doc.getElementById('change_button')) {
             autoStep3(doc);
+        } else if (isOrderChangedPage(doc)) {
+            // Strona "Order changed ... Click here to return to auction page" – nie trzeba klikać "here"
+            lastAutoStep = null;
+            finalSubmitted = false;
+            setMode('auto');
+            setStatus('Zamówienie zmienione – odświeżam stronę…', 'ok');
+            console.log(LOG, 'Strona "Order changed" – przeładowanie auftragu.');
+            setTimeout(() => location.reload(), 800);
         } else if (loadCount > 1 && (backOnAuction || finalSubmitted)) {
             setMode('auto');
             setStatus('Zamówienie zmienione – odświeżam stronę…', 'ok');
