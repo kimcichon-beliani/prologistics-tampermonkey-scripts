@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – International VAT (Change order) pod Customer Details
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.0.0
+// @version      1.0.1
 // @description  Na auction.php pod tabelą "Customer Details" wstawia sekcję International VAT z "Change order": kraj + numer VAT, Verify VAT, "Goods should be sent without VAT" i "Make 0% VAT Invoice".
 // @author       kimrioter
 // @match        https://www.prologistics.info/auction.php*
@@ -140,7 +140,10 @@
         const st = doc.createElement('style');
         st.id = 'tmkr-iso-style';
         st.textContent = `
-            html:not(.tmkr-full) .tmkr-hide { display: none !important; }
+            html:not(.tmkr-full) .tmkr-hide,
+            html:not(.tmkr-full).tmkr-iso > *:not(head):not(body),
+            html:not(.tmkr-full).tmkr-iso body > *:not(.tmkr-path):not(.tmkr-keep),
+            html:not(.tmkr-full) .tmkr-path > *:not(.tmkr-path):not(.tmkr-keep) { display: none !important; }
             html:not(.tmkr-full), html:not(.tmkr-full) body { margin: 0 !important; padding: 0 !important; height: auto !important; min-height: 0 !important; background: #fff !important; }
             html:not(.tmkr-full) body { padding: 6px 8px !important; font: 12px Arial, sans-serif; }
             html:not(.tmkr-full) #customer_vat_apply,
@@ -169,14 +172,16 @@
             while (n && n !== doc.documentElement) { onPath.add(n); n = n.parentElement; }
         });
 
-        // chowamy wszystko poza ścieżką (też luźne teksty, np. "Kiedy mamy wysłać...")
+        // Oznaczamy klasami – CSS chowa wszystko inne, także elementy dodane później
+        // przez inne skrypty (np. pasek "Currently tracking", który przykrywał przyciski)
+        doc.documentElement.classList.add('tmkr-iso');
+        onPath.forEach(n => n.classList.add('tmkr-path'));
+        keepSet.forEach(n => n.classList.add('tmkr-keep'));
+
+        // luźne teksty (np. "Kiedy mamy wysłać...") opakowujemy w ukryty span
         onPath.forEach(anc => {
             Array.from(anc.childNodes).forEach(child => {
-                if (child.nodeType === 1) {
-                    if (!onPath.has(child) && !keepSet.has(child) && child.tagName !== 'SCRIPT' && child.tagName !== 'STYLE') {
-                        child.classList.add('tmkr-hide');
-                    }
-                } else if (child.nodeType === 3 && child.textContent.trim()) {
+                if (child.nodeType === 3 && child.textContent.trim()) {
                     const wrap = doc.createElement('span');
                     wrap.className = 'tmkr-hide';
                     child.replaceWith(wrap);
@@ -204,21 +209,32 @@
     }
 
     // ---------- Dopasowanie wysokości iframe ----------
+    // Wysokość liczona z dolnej krawędzi widocznych elementów VAT – nie zależy
+    // od wysokości samego iframe, więc nie ma już pętli "rośnie w dół w nieskończoność"
     function fitHeight() {
         let doc;
         try { doc = iframe.contentDocument; } catch (e) { return; }
         if (!doc || !doc.body) return;
-        const h = Math.ceil(doc.body.scrollHeight) + 4;
-        iframe.style.height = (fullView ? Math.min(h, MAX_FULL_HEIGHT) : h) + 'px';
+
+        if (fullView) {
+            iframe.style.height = MAX_FULL_HEIGHT + 'px'; // stała wysokość + przewijanie
+            return;
+        }
+        const win = iframe.contentWindow;
+        let bottom = 0;
+        doc.querySelectorAll('.tmkr-keep').forEach(el => {
+            const r = el.getBoundingClientRect();
+            if (r.height > 0) bottom = Math.max(bottom, r.bottom + win.scrollY);
+        });
+        iframe.style.height = Math.ceil(bottom + 10) + 'px';
     }
 
     function watchHeight(doc) {
         if (resizeObs) { resizeObs.disconnect(); resizeObs = null; }
-        const RO = iframe.contentWindow && iframe.contentWindow.ResizeObserver;
-        if (RO) {
-            resizeObs = new RO(fitHeight);
-            resizeObs.observe(doc.body);
-        }
+        let t = null;
+        const MO = iframe.contentWindow.MutationObserver;
+        resizeObs = new MO(() => { clearTimeout(t); t = setTimeout(fitHeight, 100); });
+        resizeObs.observe(doc.body, { childList: true, subtree: true, characterData: true });
         fitHeight();
     }
 
