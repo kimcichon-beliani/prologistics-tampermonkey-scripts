@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Języki wiadomości w tickecie (RMA)
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.0.0
+// @version      1.1.0
 // @description  Rozpoznaje język wiadomości (czerwonych i zielonych) w tickecie RMA i pokazuje podsumowanie języków
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -211,7 +211,7 @@
     // UI: znaczki przy wiadomościach + panel podsumowania
     // ------------------------------------------------------------------
     const STORAGE_KEY = 'tm-kimrioter-rma-lang-settings';
-    let settings = { collapsed: false, includeSystem: true };
+    let settings = { detailsOpen: false, includeSystem: true };
     try { Object.assign(settings, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')); } catch (e) { /* brak */ }
     const saveSettings = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) { /* brak */ } };
 
@@ -229,6 +229,7 @@
                 font:12px Arial,sans-serif; color:#222; }
             #tm-rma-lang-panel .tm-head { background:${BRAND}; color:#fff; padding:6px 10px; cursor:pointer;
                 display:flex; justify-content:space-between; align-items:center; font-weight:bold; border-radius:5px 5px 0 0; }
+            #tm-rma-lang-panel .tm-head .tm-toggle { font-weight:normal; font-size:11px; opacity:.85; white-space:nowrap; margin-left:8px; }
             #tm-rma-lang-panel .tm-body { padding:8px 10px; max-height:50vh; overflow:auto; }
             #tm-rma-lang-panel table { width:100%; border-collapse:collapse; }
             #tm-rma-lang-panel th, #tm-rma-lang-panel td { padding:3px 4px; text-align:center; border-bottom:1px solid #eee; }
@@ -294,10 +295,13 @@
         const totalGreen = counted.filter(m => m.type === 'green').length;
 
         panel.innerHTML = `
-            <div class="tm-head"><span>🌐 Języki wiadomości (${counted.length})</span><span>${settings.collapsed ? '▲' : '▼'}</span></div>
-            <div class="tm-body" style="display:${settings.collapsed ? 'none' : 'block'}">
+            <div class="tm-head" title="Pokaż / ukryj szczegóły">
+                <span>Język klienta: ${mainCode ? `${mainInfo.flag} ${mainInfo.name}` : '—'}</span>
+                <span class="tm-toggle">Szczegóły ${settings.detailsOpen ? '▲' : '▼'}</span>
+            </div>
+            <div class="tm-body" style="display:${settings.detailsOpen ? 'block' : 'none'}">
                 <div class="tm-main">
-                    Język klienta: <b>${mainCode ? `${mainInfo.flag} ${mainInfo.name}` : '—'}</b><br>
+                    Liczba wiadomości: <b>${counted.length}</b><br>
                     Liczba języków w tickecie: <b>${languagesUsed}</b>
                 </div>
                 <table>
@@ -318,7 +322,7 @@
             </div>`;
 
         panel.querySelector('.tm-head').onclick = () => {
-            settings.collapsed = !settings.collapsed;
+            settings.detailsOpen = !settings.detailsOpen;
             saveSettings();
             renderPanel(messages);
         };
