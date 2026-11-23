@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Prologistics – Języki wiadomości w tickecie (RMA)
+// @name         Prologistics – Ticket message languages (RMA)
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.1.0
-// @description  Rozpoznaje język wiadomości (czerwonych i zielonych) w tickecie RMA i pokazuje podsumowanie języków
+// @version      1.2.0
+// @description  Detects the language of red and green messages in an RMA ticket and shows a language summary
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
 // @match        https://prologistics.info/rma.php*
@@ -31,58 +31,58 @@
     // Języki: nazwa, flaga, najczęstsze słowa i charakterystyczne znaki
     // ------------------------------------------------------------------
     const LANGS = {
-        en: { name: 'Angielski', flag: '🇬🇧',
+        en: { name: 'English', flag: '🇬🇧',
             words: 'the and is are was were to of in for on with that this it you your we our have has be not please can will would from at as an or but order item thank thanks hello regards dear been which there they',
             chars: null },
-        de: { name: 'Niemiecki', flag: '🇩🇪',
+        de: { name: 'German', flag: '🇩🇪',
             words: 'und der die das ist nicht ich sie wir mit für auf ein eine einen den dem des zu von bitte danke hallo uns ihr ihre haben wurde bei auch noch aber oder wie sehr können ware bestellung leider freundlichen grüßen sehr geehrte',
             chars: /[äöüß]/g },
-        fr: { name: 'Francuski', flag: '🇫🇷',
+        fr: { name: 'French', flag: '🇫🇷',
             words: 'le la les et est une des pour pas que qui dans avec nous vous sur ce cette mais être avons bonjour merci votre notre commande ne je il elle au aux du cordialement madame monsieur',
             chars: /[éèêàçœù]/g },
-        it: { name: 'Włoski', flag: '🇮🇹',
+        it: { name: 'Italian', flag: '🇮🇹',
             words: 'il lo gli e è un una per non che di da con sono nel della del ci vi ma questo questa grazie buongiorno ordine abbiamo siamo anche come cordiali saluti gentile',
             chars: /[àèìòù]/g },
-        es: { name: 'Hiszpański', flag: '🇪🇸',
+        es: { name: 'Spanish', flag: '🇪🇸',
             words: 'el los las y es un una por para no que de con en del al se su sus pero muy gracias hola pedido estamos hemos usted está saludos estimado',
             chars: /[ñ¿¡áíóú]/g },
-        pt: { name: 'Portugalski', flag: '🇵🇹',
+        pt: { name: 'Portuguese', flag: '🇵🇹',
             words: 'o os as e é um uma para não que de do da dos das com em no na por mas muito obrigado obrigada olá encomenda estão pelo pela foi são ao artigo cumprimentos solicitamos',
             chars: /[ãõçâêô]/g },
-        nl: { name: 'Niderlandzki', flag: '🇳🇱',
+        nl: { name: 'Dutch', flag: '🇳🇱',
             words: 'de het een en is van in op met voor niet dat die wij u uw zijn hebben maar ook nog bij om bestelling bedankt graag ik we groet vriendelijke',
             chars: null },
-        pl: { name: 'Polski', flag: '🇵🇱',
+        pl: { name: 'Polish', flag: '🇵🇱',
             words: 'i w na z do jest nie się że to jak co ale czy dla od po przez są być mamy pan pani dzień dobry dziękuję zamówienie oraz jestem pozdrawiam',
             chars: /[ąęłśźżćń]/g },
-        cs: { name: 'Czeski', flag: '🇨🇿',
+        cs: { name: 'Czech', flag: '🇨🇿',
             words: 'a je se na v z do že to jak ale pro od jsou být jsem děkuji dobrý den objednávka prosím který také již bylo pozdravem',
             chars: /[řěů]/g },
-        sk: { name: 'Słowacki', flag: '🇸🇰',
+        sk: { name: 'Slovak', flag: '🇸🇰',
             words: 'a je sa na v z do že to ako ale pre od sú byť som ďakujem dobrý deň objednávka prosím ktorý tiež už bolo pozdravom',
             chars: /[ľĺŕôä]/g },
-        sv: { name: 'Szwedzki', flag: '🇸🇪',
+        sv: { name: 'Swedish', flag: '🇸🇪',
             words: 'och är att det som en ett på för med inte jag vi ni har till av den om men hej tack beställning kan vara hälsningar',
             chars: /[åäö]/g },
-        da: { name: 'Duński', flag: '🇩🇰',
+        da: { name: 'Danish', flag: '🇩🇰',
             words: 'og er at det som en et på for med ikke jeg vi har til af den om men hej tak bestilling kan være hilsen venlig',
             chars: /[æøå]/g },
-        no: { name: 'Norweski', flag: '🇳🇴',
+        no: { name: 'Norwegian', flag: '🇳🇴',
             words: 'og er at det som en et på for med ikke jeg vi har til av den om men hei takk bestilling kan være hilsen vennlig',
             chars: /[æøå]/g },
-        fi: { name: 'Fiński', flag: '🇫🇮',
+        fi: { name: 'Finnish', flag: '🇫🇮',
             words: 'ja on ei se että olen olemme te me tilaus kiitos hei mutta kun myös tai voi ole oli terveisin ystävällisin',
             chars: /[äö]/g },
-        hu: { name: 'Węgierski', flag: '🇭🇺',
+        hu: { name: 'Hungarian', flag: '🇭🇺',
             words: 'és a az egy hogy nem van is meg de ez azt köszönöm kérem rendelés vagyok már még üdvözlettel',
             chars: /[őűáé]/g },
-        ro: { name: 'Rumuński', flag: '🇷🇴',
+        ro: { name: 'Romanian', flag: '🇷🇴',
             words: 'și este în la un o cu nu pentru că de pe se ce mai sunt vă mulțumesc comanda bună ziua',
             chars: /[ășțâî]/g },
-        el: { name: 'Grecki', flag: '🇬🇷', words: '', chars: null },
+        el: { name: 'Greek', flag: '🇬🇷', words: '', chars: null },
     };
 
-    const UNKNOWN = { name: 'Nieznany', flag: '❔' };
+    const UNKNOWN = { name: 'Unknown', flag: '❔' };
 
     // Zbiory słów do szybkiego sprawdzania
     for (const code of Object.keys(LANGS)) {
@@ -152,7 +152,7 @@
             const availability = await window.LanguageDetector.availability();
             if (availability !== 'available') return;
             chromeDetector = await window.LanguageDetector.create();
-            console.log(LOG, 'Używam wbudowanego LanguageDetector z Chrome');
+            console.log(LOG, 'Using Chrome built-in LanguageDetector');
         } catch (e) {
             chromeDetector = null;
         }
@@ -224,7 +224,7 @@
                 font:bold 11px/16px Arial,sans-serif; background:#fff; color:${BRAND}; border:1px solid ${BRAND}; }
             .tm-lang-badge.tm-system { opacity:.6; border-style:dashed; }
             .tm-lang-hl { outline:3px solid ${BRAND} !important; outline-offset:-3px; }
-            #tm-rma-lang-panel { position:fixed; right:16px; bottom:16px; z-index:99999; width:290px;
+            #tm-rma-lang-panel { position:fixed; right:66px; bottom:16px; z-index:99999; width:290px;
                 background:#fff; border:2px solid ${BRAND}; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.25);
                 font:12px Arial,sans-serif; color:#222; }
             #tm-rma-lang-panel .tm-head { background:${BRAND}; color:#fff; padding:6px 10px; cursor:pointer;
@@ -252,8 +252,8 @@
         }
         const info = langInfo(result.code);
         badge.textContent = `${info.flag} ${result.code ? result.code.toUpperCase() : '?'}`
-            + (msg.isSystem ? ' · systemowa' : '');
-        badge.title = `${info.name} (pewność ${Math.round(result.confidence * 100)}%)`;
+            + (msg.isSystem ? ' · system' : '');
+        badge.title = `${info.name} (confidence ${Math.round(result.confidence * 100)}%)`;
         badge.classList.toggle('tm-system', msg.isSystem);
     }
 
@@ -295,29 +295,29 @@
         const totalGreen = counted.filter(m => m.type === 'green').length;
 
         panel.innerHTML = `
-            <div class="tm-head" title="Pokaż / ukryj szczegóły">
-                <span>Język klienta: ${mainCode ? `${mainInfo.flag} ${mainInfo.name}` : '—'}</span>
-                <span class="tm-toggle">Szczegóły ${settings.detailsOpen ? '▲' : '▼'}</span>
+            <div class="tm-head" title="Show / hide details">
+                <span>Customer language: ${mainCode ? `${mainInfo.flag} ${mainInfo.name}` : '—'}</span>
+                <span class="tm-toggle">Details ${settings.detailsOpen ? '▲' : '▼'}</span>
             </div>
             <div class="tm-body" style="display:${settings.detailsOpen ? 'block' : 'none'}">
                 <div class="tm-main">
-                    Liczba wiadomości: <b>${counted.length}</b><br>
-                    Liczba języków w tickecie: <b>${languagesUsed}</b>
+                    Messages: <b>${counted.length}</b><br>
+                    Languages in ticket: <b>${languagesUsed}</b>
                 </div>
                 <table>
-                    <thead><tr><th>Język</th><th title="Wiadomości od klienta">🔴</th><th title="Wiadomości do klienta">🟢</th><th>Razem</th></tr></thead>
+                    <thead><tr><th>Language</th><th title="Messages from customer">🔴</th><th title="Messages to customer">🟢</th><th>Total</th></tr></thead>
                     <tbody>
                         ${rows.map(([code, v]) => {
                             const info = code === 'unknown' ? UNKNOWN : langInfo(code);
                             return `<tr data-lang="${code}" class="${activeLang === code ? 'tm-active' : ''}">
                                 <td>${info.flag} ${info.name}</td><td>${v.red}</td><td>${v.green}</td><td><b>${v.red + v.green}</b></td></tr>`;
-                        }).join('') || '<tr><td colspan="4">Brak wiadomości</td></tr>'}
+                        }).join('') || '<tr><td colspan="4">No messages</td></tr>'}
                     </tbody>
-                    <tfoot><tr><th>Razem</th><th>${totalRed}</th><th>${totalGreen}</th><th>${counted.length}</th></tr></tfoot>
+                    <tfoot><tr><th>Total</th><th>${totalRed}</th><th>${totalGreen}</th><th>${counted.length}</th></tr></tfoot>
                 </table>
                 <div class="tm-foot">
-                    <label><input type="checkbox" class="tm-sys" ${settings.includeSystem ? 'checked' : ''}> Uwzględnij wiadomości systemowe</label><br>
-                    Kliknij język, aby podświetlić jego wiadomości.
+                    <label><input type="checkbox" class="tm-sys" ${settings.includeSystem ? 'checked' : ''}> Include system messages</label><br>
+                    Click a language to highlight its messages.
                 </div>
             </div>`;
 
@@ -363,7 +363,7 @@
                 setBadge(m, res);
             }
             renderPanel(messages);
-            console.log(LOG, `Przeanalizowano ${messages.length} wiadomości`);
+            console.log(LOG, `Analysed ${messages.length} messages`);
         } finally {
             running = false;
         }
