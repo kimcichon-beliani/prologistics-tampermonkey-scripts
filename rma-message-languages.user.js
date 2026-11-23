@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Prologistics – Ticket message languages (RMA)
 // @namespace    https://github.com/kimcichon-beliani/prologistics-tampermonkey-scripts
-// @version      1.2.0
+// @version      1.3.0
 // @description  Detects the language of red and green messages in an RMA ticket and shows a language summary
 // @author       kimrioter
 // @match        https://www.prologistics.info/rma.php*
@@ -224,7 +224,7 @@
                 font:bold 11px/16px Arial,sans-serif; background:#fff; color:${BRAND}; border:1px solid ${BRAND}; }
             .tm-lang-badge.tm-system { opacity:.6; border-style:dashed; }
             .tm-lang-hl { outline:3px solid ${BRAND} !important; outline-offset:-3px; }
-            #tm-rma-lang-panel { position:fixed; right:66px; bottom:16px; z-index:99999; width:290px;
+            #tm-rma-lang-panel { position:fixed; right:76px; bottom:16px; z-index:99999; width:290px;
                 background:#fff; border:2px solid ${BRAND}; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.25);
                 font:12px Arial,sans-serif; color:#222; }
             #tm-rma-lang-panel .tm-head { background:${BRAND}; color:#fff; padding:6px 10px; cursor:pointer;
@@ -251,7 +251,7 @@
             msg.td.insertBefore(badge, msg.td.firstChild);
         }
         const info = langInfo(result.code);
-        badge.textContent = `${info.flag} ${result.code ? result.code.toUpperCase() : '?'}`
+        badge.textContent = `${result.code ? result.code.toUpperCase() : '?'}`
             + (msg.isSystem ? ' · system' : '');
         badge.title = `${info.name} (confidence ${Math.round(result.confidence * 100)}%)`;
         badge.classList.toggle('tm-system', msg.isSystem);
@@ -296,7 +296,7 @@
 
         panel.innerHTML = `
             <div class="tm-head" title="Show / hide details">
-                <span>Customer language: ${mainCode ? `${mainInfo.flag} ${mainInfo.name}` : '—'}</span>
+                <span>Customer language: ${mainCode ? mainInfo.name : '—'}</span>
                 <span class="tm-toggle">Details ${settings.detailsOpen ? '▲' : '▼'}</span>
             </div>
             <div class="tm-body" style="display:${settings.detailsOpen ? 'block' : 'none'}">
@@ -310,7 +310,7 @@
                         ${rows.map(([code, v]) => {
                             const info = code === 'unknown' ? UNKNOWN : langInfo(code);
                             return `<tr data-lang="${code}" class="${activeLang === code ? 'tm-active' : ''}">
-                                <td>${info.flag} ${info.name}</td><td>${v.red}</td><td>${v.green}</td><td><b>${v.red + v.green}</b></td></tr>`;
+                                <td>${info.name}</td><td>${v.red}</td><td>${v.green}</td><td><b>${v.red + v.green}</b></td></tr>`;
                         }).join('') || '<tr><td colspan="4">No messages</td></tr>'}
                     </tbody>
                     <tfoot><tr><th>Total</th><th>${totalRed}</th><th>${totalGreen}</th><th>${counted.length}</th></tr></tfoot>
